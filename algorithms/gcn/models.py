@@ -21,7 +21,7 @@ class GCN(Model):
 
         self.layers_ = []
         self.layers_.append(GraphConvolution(input_dim=self.input_dim,  # 1433
-                                            output_dim=self.output_dim,  # 16
+                                            output_dim=self.hidden_dim,  # 16
                                             num_features_nonzero=num_features_nonzero,
                                             activation=tf.nn.relu,
                                             dropout=self.dropout,
@@ -31,8 +31,8 @@ class GCN(Model):
 
 
 
-        self.layers_.append(GraphConvolution(input_dim=self.hidden1, # 16
-                                            output_dim=self.output_dim, # 7
+        self.layers_.append(GraphConvolution(input_dim=self.hidden_dim,
+                                            output_dim=self.output_dim,
                                             num_features_nonzero=num_features_nonzero,
                                             activation=lambda x: x,
                                             dropout=self.dropout))

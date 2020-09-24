@@ -18,7 +18,7 @@ def run_gcn(args):
     tf.random.set_seed(seed)
 
     # load data
-    A, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data(args.dataset)
+    A, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data(args.input)
     print("Loaded", len(y_train), "nodes")
     print()
     print("-- Data format --")
@@ -30,6 +30,7 @@ def run_gcn(args):
     num_classes = y_train.shape[1]
     # D^-1@X
     features = preprocess_features(features)  # [49216, 2], [49216], [2708, 1433]
+    features = sparse_to_tuple(features)
     print('features coordinates::', features[0].shape)
     print('features data::', features[1].shape)
     print('features shape::', features[2])
@@ -69,7 +70,7 @@ def run_gcn(args):
         _, val_acc = model((features, val_label, val_mask, support), training=False)
 
         if epoch % 20 == 0:
-            print(epoch, float(loss), float(acc), '\tval:', float(val_acc))
+            print('Epoch:', epoch, '\tloss:', float(loss), '\ttrain:', float(acc), '\tval:', float(val_acc))
 
         if loss < best:
             best = loss
@@ -84,7 +85,7 @@ def run_gcn(args):
 
     test_loss, test_acc = model((features, test_label, test_mask, support), training=False)
 
-    print('\ttest:', float(test_loss), float(test_acc))
+    print('test loss:', float(test_loss), '\ttest acc:', float(test_acc))
 
     # # produce embeddings
     # mask = tf.convert_to_tensor(np.ones(y_train.shape[0]))  # should consider all the labels. y_train's shape[0] is the same as y_val and y_test
