@@ -32,7 +32,7 @@ def run_gcn(args):
     features = preprocess_features(features)  # [49216, 2], [49216], [2708, 1433]
     features = sparse_to_tuple(features)
     print('features coordinates::', features[0].shape)
-    print('features data::', features[1].shape)
+    print('Non-zero feature entries::', features[1].shape)
     print('features shape::', features[2])
 
     if args.type == 'gcn':
