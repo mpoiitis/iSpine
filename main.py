@@ -11,7 +11,6 @@ def parse_args():
     subparsers = parser.add_subparsers(dest='method', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
 
     gcn_parser = subparsers.add_parser('gcn', help='GCN method.')
-    gcn_parser.add_argument("--nn", default='gcn', type=str, choices=['gcn', 'autoencoder'], help="Type of neural network. Default is gcn.")
     gcn_parser.add_argument("--type", default='gcn', type=str, choices=['gcn', 'gcn_cheby'], help="Type of adjacency matrix. Default is gcn.")
     gcn_parser.add_argument("--epochs", default=200, type=int, help="Number of epochs. Default is 200.")
     gcn_parser.add_argument("--dimension", default=128, type=int, help="Number of latent dimensions to learn for each node. Default is 128.")

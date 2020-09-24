@@ -178,13 +178,23 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     return torch.sparse.FloatTensor(indices, values, shape)
 
 
-def save_results(args, result, node_dict):
+def save_results(args, result, node_dict=None):
+    """
+    Save the embeddings to file
+    :param args: CLI arguments
+    :param result: the embeddings
+    :param node_dict: if given it maps the node indices to the actual node names
+    """
     # add initial node string name as the first column of the embedding
+    print('Saving embeddings to location', args.output)
+    print('Number of embeddings', len(result))
     list_with_index = list()
     for i, embedding in enumerate(result):
         l = list()
-        l.append(list(node_dict.keys())[list(node_dict.values()).index(i)])
-        # l.append(i) # un comment to save index instead of actual node string name
+        if node_dict:
+            l.append(list(node_dict.keys())[list(node_dict.values()).index(i)])  # save actual node string name instead of index
+        else:
+            l.append(i)  # save index instead of actual node string name
         l.extend(embedding)
         list_with_index.append(l)
 

@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import tensorflow as tf
-from utils.utils import preprocess_adj, preprocess_features, sparse_to_tuple, chebyshev_polynomials, load_data, load_data_trunc
+from utils.utils import preprocess_adj, preprocess_features, sparse_to_tuple, chebyshev_polynomials, load_data, save_results
 from algorithms.gcn.models import GCN
 
 
@@ -60,6 +60,7 @@ def run_gcn(args):
 
     cnt_wait = 0
     best = 1e9
+    best_t = 0
     for epoch in range(args.epochs):
 
         with tf.GradientTape() as tape:
@@ -69,13 +70,14 @@ def run_gcn(args):
 
         _, val_acc = model((features, val_label, val_mask, support), training=False)
 
-        if epoch % 20 == 0:
-            print('Epoch:', epoch, '\tloss:', float(loss), '\ttrain:', float(acc), '\tval:', float(val_acc))
+
+        print('Epoch:', epoch, '\tloss:', float(loss), '\ttrain:', float(acc), '\tval:', float(val_acc))
 
         if loss < best:
             best = loss
+            best_t = epoch
             cnt_wait = 0
-            model.save('output/models/best_gcn')
+            model.save_weights('output/models/best_gcn')
         else:
             cnt_wait += 1
 
@@ -87,7 +89,12 @@ def run_gcn(args):
 
     print('test loss:', float(test_loss), '\ttest acc:', float(test_acc))
 
-    # # produce embeddings
-    # mask = tf.convert_to_tensor(np.ones(y_train.shape[0]))  # should consider all the labels. y_train's shape[0] is the same as y_val and y_test
-    # adj, features, labels, idx_train, idx_val, idx_test = load_data_trunc(args.input)  # use this to get all the labels
-    # embeds = model.embed((features, labels, mask, support), training=False)
+    # load model
+    print('Loading {}th epoch'.format(best_t))
+    model.load_weights('output/models/best_gcn')
+
+    # produce embeddings
+    embeds = model.embed((features, support), training=False)
+    # save embeddings
+    embeds = [e.numpy() for e in embeds]
+    save_results(args, embeds)

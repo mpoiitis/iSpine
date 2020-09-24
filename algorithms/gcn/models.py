@@ -69,9 +69,12 @@ class GCN(Model):
         return loss, acc
 
     def embed(self, inputs, training=False):
-        x, label, mask, support = inputs
+        x, support = inputs
         outputs = [x]
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
+            # skip last layer as it does the annotation to the labels instead of the embedding
+            if i == len(self.layers) - 1:
+                break
             hidden = layer((outputs[-1], support), training)
             outputs.append(hidden)
         output = outputs[-1]

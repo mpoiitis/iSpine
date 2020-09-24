@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from sklearn.preprocessing import LabelEncoder
-from utils.utils import preprocess_adj, preprocess_features, load_data_trunc, sparse_mx_to_torch_sparse_tensor
+from utils.utils import preprocess_adj, preprocess_features, load_data_trunc, sparse_mx_to_torch_sparse_tensor, save_results
 from .models import DGI, LogReg
 import torch
 import torch.nn as nn
@@ -19,11 +19,11 @@ def run_dgi(args):
         os.makedirs('output/models')
 
     A, features, labels, idx_train, idx_val, idx_test = load_data_trunc(args.input)
-
     features = preprocess_features(features)
     features = features.todense()
 
     num_nodes = features.shape[0]
+    feature_size = features.shape[1]
     num_classes = labels.shape[1]
 
     A = preprocess_adj(A)
@@ -31,7 +31,6 @@ def run_dgi(args):
     A = A.tocoo()  # convert to sparse
 
     if args.sparse:
-
         A = sparse_mx_to_torch_sparse_tensor(A)
     else:
         A = (A + sp.eye(A.shape[0])).todense()
@@ -43,7 +42,7 @@ def run_dgi(args):
     idx_val = torch.LongTensor(idx_val)
     idx_test = torch.LongTensor(idx_test)
 
-    model = DGI(features.shape[1], args.dimension, 'prelu')
+    model = DGI(feature_size, args.dimension, 'prelu')
     optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
     if torch.cuda.is_available():
@@ -80,7 +79,7 @@ def run_dgi(args):
 
         logits = model(features, shuf_fts, A, args.sparse, None, None, None)
         loss = b_xent(logits, lbl)
-        print('Loss:', loss)
+        print('Epoch:', epoch, '\tLoss:', loss)
 
         if loss < best:
             best = loss
@@ -97,11 +96,18 @@ def run_dgi(args):
         loss.backward()
         optimiser.step()
 
-    # EVALUATION PHASE. DOWNSTREAM TASK IS NODE CLASSIFICATION USING LOGISTIC REGRESSION
+    # Load model
     print('Loading {}th epoch'.format(best_t))
-    model.load_state_dict(torch.load('best_dgi.pkl'))
+    model.load_state_dict(torch.load('output/models/best_dgi.pkl'))
 
+    # produce embeddings
     embeds, _ = model.embed(features, A, args.sparse, None)
+    # save embeddings
+    embeds = [e.cpu().numpy() for e in embeds]
+    save_results(args, embeds[0])
+
+    # EVALUATION PHASE. DOWNSTREAM TASK IS NODE CLASSIFICATION USING LOGISTIC REGRESSION
+    print('Evaluating')
     train_embs = embeds[0, idx_train]
     val_embs = embeds[0, idx_val]
     test_embs = embeds[0, idx_test]
