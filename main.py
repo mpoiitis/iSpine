@@ -31,6 +31,14 @@ def parse_args():
     dgi_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
     dgi_parser.add_argument("--sparse", dest='sparse', action='store_true', help="Use sparse form of arrays")
 
+    vgae_parser = subparsers.add_parser('vgae', help='VGAE method.')
+    vgae_parser.add_argument("--model", default='gae', type=str, choices=['gae', 'vgae'], help="Type of adjacency matrix. Default is gcn.")
+    vgae_parser.add_argument("--epochs", default=200, type=int, help="Number of epochs. Default is 200.")
+    vgae_parser.add_argument("--hidden1", default=512, type=int, help="Neurons in hidden layer 1. Default is 512.")
+    vgae_parser.add_argument("--hidden2", default=128, type=int, help="Neurons in hidden layer 2. Default is 128.")
+    vgae_parser.add_argument("--use-features", dest='use_features', action='store_true', help="Use node features")
+    vgae_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
+
     args = parser.parse_args()
 
     return args
@@ -44,7 +52,7 @@ if __name__ == "__main__":
     args = parse_args()
     if args.method == 'gcn':
         run_gcn(args)
-    elif args.method == 'vae':
+    elif args.method == 'vgae':
         pass
     elif args.method == 'dgi':
         run_dgi(args)
