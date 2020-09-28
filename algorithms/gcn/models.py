@@ -56,7 +56,7 @@ class GCN(Model):
             outputs.append(hidden)
         output = outputs[-1]
 
-        # # Weight decay loss
+        # Weight decay loss
         loss = tf.zeros([])
         for var in self.layers_[0].trainable_variables:
             loss += self.weight_decay * tf.nn.l2_loss(var)

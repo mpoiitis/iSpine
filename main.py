@@ -2,6 +2,7 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from evaluation.evaluation import evaluation
 from algorithms.gcn.gcn import run_gcn
 from algorithms.dgi.dgi import run_dgi
+from algorithms.vgae.vgae import run_vgae
 
 
 def parse_args():
@@ -32,20 +33,20 @@ def parse_args():
     dgi_parser.add_argument("--sparse", dest='sparse', action='store_true', help="Use sparse form of arrays")
 
     vgae_parser = subparsers.add_parser('vgae', help='VGAE method.')
+    vgae_parser.add_argument("--type", default='normal', type=str, choices=['normal', 'cheby'], help="Type of adjacency matrix. Default is normal.")
     vgae_parser.add_argument("--model", default='gae', type=str, choices=['gae', 'vgae'], help="Type of adjacency matrix. Default is gcn.")
     vgae_parser.add_argument("--epochs", default=200, type=int, help="Number of epochs. Default is 200.")
-    vgae_parser.add_argument("--hidden1", default=512, type=int, help="Neurons in hidden layer 1. Default is 512.")
-    vgae_parser.add_argument("--hidden2", default=128, type=int, help="Neurons in hidden layer 2. Default is 128.")
-    vgae_parser.add_argument("--use-features", dest='use_features', action='store_true', help="Use node features")
+    vgae_parser.add_argument("--batch-size", default=1, type=int, help="Size of the batch used for training. Default is 1.")
+    vgae_parser.add_argument("--hidden", default=512, type=int, help="Neurons in hidden layer. Default is 512.")
+    vgae_parser.add_argument("--dimension", default=128, type=int, help="Embedding dimension. Default is 128.")
     vgae_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
+    vgae_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
+    vgae_parser.add_argument("--sparse", dest='sparse', action='store_true', help="Use sparse form of arrays")
+    vgae_parser.add_argument("--dropout", default=0.0, type=float, help="Dropout rate (1 - keep probability). Default is 0.0.")
 
     args = parser.parse_args()
 
     return args
-
-
-def run_vae(args):
-    pass
 
 
 if __name__ == "__main__":
@@ -53,7 +54,7 @@ if __name__ == "__main__":
     if args.method == 'gcn':
         run_gcn(args)
     elif args.method == 'vgae':
-        pass
+        run_vgae(args)
     elif args.method == 'dgi':
         run_dgi(args)
     else:

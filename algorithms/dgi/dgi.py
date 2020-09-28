@@ -1,8 +1,5 @@
 import os
 import numpy as np
-import pandas as pd
-import networkx as nx
-from sklearn.preprocessing import LabelEncoder
 from utils.utils import preprocess_adj, preprocess_features, load_data_trunc, sparse_mx_to_torch_sparse_tensor, save_results
 from .models import DGI, LogReg
 import torch
