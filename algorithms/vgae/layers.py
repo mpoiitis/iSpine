@@ -18,7 +18,7 @@ class VariationalEncoder(Layer):
     def __init__(self, input_dim, output_dim, hidden_dim, num_features_nonzero, activation, dropout, is_sparse_inputs=True,  name="variational_encoder", **kwargs):
         super(VariationalEncoder, self).__init__(name=name, **kwargs)
         self.proj = GraphConvolution(input_dim=input_dim, output_dim=hidden_dim, num_features_nonzero=num_features_nonzero,
-                                 activation=activation, dropout=dropout, is_sparse_inputs=is_sparse_inputs)
+                                 activation=activation, dropout=dropout, is_sparse_inputs=True)
         self.mean = GraphConvolution(input_dim=hidden_dim, output_dim=output_dim, num_features_nonzero=num_features_nonzero,
                                 activation=lambda x: x, dropout=dropout)
         self.log_var = GraphConvolution(input_dim=hidden_dim, output_dim=output_dim, num_features_nonzero=num_features_nonzero,
@@ -39,7 +39,7 @@ class Encoder(Layer):
     def __init__(self, input_dim, output_dim, num_features_nonzero, activation, dropout, is_sparse_inputs=True, name="encoder", **kwargs):
         super(Encoder, self).__init__(name=name, **kwargs)
         self.proj = GraphConvolution(input_dim=input_dim, output_dim=output_dim, num_features_nonzero=num_features_nonzero,
-                                 activation=activation, dropout=dropout, is_sparse_inputs=is_sparse_inputs)
+                                 activation=activation, dropout=dropout, is_sparse_inputs=True)
 
     def call(self, inputs, training):
         z = self.proj(inputs, training)

@@ -5,6 +5,7 @@ from utils.utils import preprocess_adj, preprocess_features, load_data, sparse_t
 
 
 def run_vgae(args):
+    # with tf.device('/cpu:0'):
     # Set random seed
     seed = 123
     np.random.seed(seed)
@@ -59,6 +60,7 @@ def run_vgae(args):
     cnt_wait = 0
     best = 1e9
     best_t = 0
+
     for epoch in range(args.epochs):
         with tf.GradientTape() as tape:
             loss = model((features, train_mask, support), training=True)

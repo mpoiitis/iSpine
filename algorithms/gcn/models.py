@@ -38,15 +38,8 @@ class GCN(Model):
                                             dropout=self.dropout))
 
 
-        for p in self.trainable_variables:
-            print(p.name, p.shape)
-
     def call(self, inputs, training=None):
-        """
-        :param inputs:
-        :param training:
-        :return:
-        """
+
         x, label, mask, support = inputs
 
         outputs = [x]

@@ -23,19 +23,21 @@ class VGAE(tf.keras.Model):
         self.decoder = Decoder(input_dim=self.output_dim, dropout=self.dropout)
 
     def call(self, inputs, training=None):
-        x, mask, support = inputs
+        x, mask, adj = inputs
 
-        z_mean, z_log_var, z = self.encoder((x, support), training)
+        z_mean, z_log_var, z = self.encoder((x, adj), training)
         reconstructed = self.decoder(z)
+
+        # convert adjacency to dense and flatten to feed it in the loss calculation function
+        adj_dense = tf.sparse.to_dense(tf.sparse.reorder(adj[0]))
+        adj_dense = tf.reshape(adj_dense, [-1])
 
         loss = tf.zeros([])
         for var in self.trainable_variables:
             loss += tf.nn.l2_loss(var)
 
-        x_dense = tf.sparse.to_dense(tf.sparse.reorder(x))
         # Cross entropy error
-        loss += masked_sigmoid_cross_entropy(reconstructed, x_dense, mask)
-        # loss = masked_sigmoid_cross_entropy(reconstructed, x, mask)
+        loss += masked_sigmoid_cross_entropy(reconstructed, adj_dense, mask)
 
         # Add KL divergence regularization loss.
         kl_loss = -0.5 * tf.reduce_mean(
@@ -60,26 +62,27 @@ class GAE(tf.keras.Model):
         self.hidden_dim = hidden_dim
         self.dropout = dropout
 
-        print('input dim:', input_dim)
-        print('output dim:', output_dim)
-        print('num_features_nonzero:', num_features_nonzero)
-
         self.encoder = Encoder(input_dim=self.input_dim, output_dim=self.output_dim, num_features_nonzero=num_features_nonzero,
                                activation=tf.nn.relu, dropout=self.dropout, is_sparse_inputs=is_sparse_inputs)
         self.decoder = Decoder(input_dim=self.output_dim, dropout=self.dropout)
 
+
     def call(self, inputs, training=None):
-        x, mask, support = inputs
-        z = self.encoder((x, support), training)
+        x, mask, adj = inputs
+        z = self.encoder((x, adj), training)
         reconstructed = self.decoder(z)
+
+        # convert adjacency to dense and flatten to feed it in the loss calculation function
+        adj_dense = tf.sparse.to_dense(tf.sparse.reorder(adj[0]))
+        adj_dense = tf.reshape(adj_dense, [-1])
 
         loss = tf.zeros([])
         for var in self.trainable_variables:
             loss += tf.nn.l2_loss(var)
 
         # Cross entropy error
-        loss += masked_sigmoid_cross_entropy(reconstructed, x_dense, mask)
-        # loss = masked_sigmoid_cross_entropy(reconstructed, x, mask)
+        loss += masked_sigmoid_cross_entropy(reconstructed, adj_dense, mask)
+
         return loss
 
     def embed(self, inputs):

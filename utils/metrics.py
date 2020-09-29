@@ -20,7 +20,11 @@ def masked_sigmoid_cross_entropy(preds, labels, mask):
     loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=preds, labels=labels)
     mask = tf.cast(mask, dtype=tf.float32)
     mask /= tf.reduce_mean(mask)
+
+    loss = tf.reshape(loss, [mask.shape[0], -1])
     loss *= mask
+
+    loss = tf.reshape(loss, [-1])
     return tf.reduce_mean(loss)
 
 
