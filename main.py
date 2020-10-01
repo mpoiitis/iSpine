@@ -4,7 +4,7 @@ from algorithms.gcn.gcn import run_gcn
 from algorithms.dgi.dgi import run_dgi
 from algorithms.vgae.vgae import run_vgae
 from algorithms.agc.agc import run_agc
-
+from algorithms.dane.dane import run_dane
 
 def parse_args():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter, conflict_handler='resolve')
@@ -52,6 +52,23 @@ def parse_args():
     agc_parser = embedding_subparsers.add_parser('agc', help='AGC method.')
     agc_parser.add_argument("--max_iter", default=60, type=int, help="Number of max iterations if there is no conversion in intra_C. Default is 60.")
 
+    dane_parser = embedding_subparsers.add_parser('dane', help='DANE method.')
+    dane_parser.add_argument('--label-file', required=True, help='Label file path.')
+    dane_parser.add_argument('--feature-file', required=True, help='Feature file path.')
+    dane_parser.add_argument('--node-status', default='', help='Node status file path.')
+    dane_parser.add_argument('--is-adjlist', dest='is_adjlist', action='store_true', help='If given, graph file is an adjacency list')
+    dane_parser.add_argument('--num-walks', default=10, type=int, help="Number of walks. Default is 10.")
+    dane_parser.add_argument('--walk-length', default=80, type=int, help="The length of the walk. Default is 80.")
+    dane_parser.add_argument('--window-size', default=10, type=int, help="The size of the window. Default is 10.")
+    dane_parser.add_argument('--net-shape', default=[200, 100], type=list, help="Shape of autoencoder. Default is [200, 100]")
+    dane_parser.add_argument('--att-shape', default=[200, 100], type=list, help="Shape of autoencoder for attributes. Default is [200, 100]")
+    dane_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
+    dane_parser.add_argument("--learning-rate", default=0.00001, type=float, help="Initial learning rate. Default is 0.00001.")
+    dane_parser.add_argument("--batch-size", default=100, type=int, help="Size of the batch used for training. Default is 100.")
+    dane_parser.add_argument("--epochs", default=500, type=int, help="Number of epochs. Default is 500.")
+    dane_parser.add_argument("--alpha", default=50., type=float, help="Initial learning rate. Default is 50.")
+    dane_parser.add_argument("--beta", default=100., type=float, help="Initial learning rate. Default is 100.")
+    dane_parser.add_argument("--gamma", default=500., type=float, help="Initial learning rate. Default is 500.")
 
     evaluation_parser = subparsers.add_parser('evaluation', help="Runs an evaluation algorithm to test the produced embeddings.")
     evaluation_parser.add_argument('--input', required=True, help='The embedding file.')
@@ -73,6 +90,8 @@ if __name__ == "__main__":
         run_dgi(args)
     elif args.method == 'agc':
         run_agc(args)
+    elif args.method == 'dane':
+        run_dane(args)
     else:
         pass
 
