@@ -5,13 +5,13 @@ from .trainer.pretrainer import PreTrainer
 from .trainer.trainer import Trainer
 from .model.model import Model
 import os
-
+import tensorflow as tf
 
 def run_dane(args):
-
+    tf.compat.v1.disable_eager_execution()
     graph_config = {
         'is_adjlist': args.is_adjlist,
-        'graph_file': args.input,
+        'graph_file': 'data/dane_data/{}/edges.txt'.format(args.input),
         'label_file': args.label_file,
         'feature_file': args.feature_file,
         'node_status_file': args.node_status,
@@ -28,13 +28,13 @@ def run_dane(args):
     get_walks(graph, walk_config)
 
     gpus_to_use, free_memory = gpu_info.get_free_gpu()
-    print(gpus_to_use, free_memory)
-    os.environ['CUDA_VISIBLE_DEVICES'] = gpus_to_use
+    print('GPU:', gpus_to_use, 'FREE MEMORY:', free_memory)
+    os.environ['CUDA_VISIBLE_DEVICES'] = gpus_to_use  # 0
 
     random.seed(9001)
 
     dataset_config = {'feature_file': args.feature_file,
-                      'graph_file': args.input,
+                      'graph_file': 'data/dane_data/{}/edges.txt'.format(args.input),
                       'walks_file': args.output,
                       'label_file': args.label_file}
     graph = Dataset(dataset_config)
@@ -47,6 +47,7 @@ def run_dane(args):
         'att_shape': args.att_shape,
         'net_input_dim': graph.num_nodes,
         'att_input_dim': graph.num_feas,
+        'drop_prob': args.dropout,
         'pretrain_params_path': './Log/{}/pretrain_params.pkl'.format(args.input)}
 
     pretrainer = PreTrainer(pretrain_config)

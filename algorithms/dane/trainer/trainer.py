@@ -22,22 +22,22 @@ class Trainer(object):
         self.num_epochs = config['num_epochs']
         self.model_path = config['model_path']
 
-        self.x = tf.placeholder(tf.float32, [None, self.net_input_dim])
-        self.z = tf.placeholder(tf.float32, [None, self.att_input_dim])
-        self.w = tf.placeholder(tf.float32, [None, None])
+        self.x = tf.compat.v1.placeholder(tf.float32, [None, self.net_input_dim])
+        self.z = tf.compat.v1.placeholder(tf.float32, [None, self.att_input_dim])
+        self.w = tf.compat.v1.placeholder(tf.float32, [None, None])
 
-        self.neg_x = tf.placeholder(tf.float32, [None, self.net_input_dim])
-        self.neg_z = tf.placeholder(tf.float32, [None, self.att_input_dim])
-        self.neg_w = tf.placeholder(tf.float32, [None, None])
+        self.neg_x = tf.compat.v1.placeholder(tf.float32, [None, self.net_input_dim])
+        self.neg_z = tf.compat.v1.placeholder(tf.float32, [None, self.att_input_dim])
+        self.neg_w = tf.compat.v1.placeholder(tf.float32, [None, None])
 
         self.optimizer, self.loss = self._build_training_graph()
         self.net_H, self.att_H, self.H = self._build_eval_graph()
 
-        gpu_config = tf.ConfigProto()
+        gpu_config = tf.compat.v1.ConfigProto()
         gpu_config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config=gpu_config)
-        self.sess.run(tf.global_variables_initializer())
-        self.saver = tf.train.Saver()
+        self.sess = tf.compat.v1.Session(config=gpu_config)
+        self.sess.run(tf.compat.v1.global_variables_initializer())
+        self.saver = tf.compat.v1.train.Saver()
 
     def _build_training_graph(self):
         net_H, net_recon = self.model.forward_net(self.x, drop_prob=self.drop_prob, reuse=False)
@@ -75,41 +75,39 @@ class Trainer(object):
 
         pp_x_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.w + tf.eye(tf.shape(self.w)[0]),
                                                             logits=pre_logit_pp_x) \
-                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.diag_part(pre_logit_pp_x)),
-                                                              logits=tf.diag_part(pre_logit_pp_x))
+                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.linalg.diag_part(pre_logit_pp_x)),
+                                                              logits=tf.linalg.diag_part(pre_logit_pp_x))
         pp_z_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.w + tf.eye(tf.shape(self.w)[0]),
                                                             logits=pre_logit_pp_z) \
-                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.diag_part(pre_logit_pp_z)),
-                                                              logits=tf.diag_part(pre_logit_pp_z))
+                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.linalg.diag_part(pre_logit_pp_z)),
+                                                              logits=tf.linalg.diag_part(pre_logit_pp_z))
 
         nn_x_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.w + tf.eye(tf.shape(self.neg_w)[0]),
                                                             logits=pre_logit_nn_x) \
-                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.diag_part(pre_logit_nn_x)),
-                                                              logits=tf.diag_part(pre_logit_nn_x))
+                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.linalg.diag_part(pre_logit_nn_x)),
+                                                              logits=tf.linalg.diag_part(pre_logit_nn_x))
         nn_z_loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.w + tf.eye(tf.shape(self.neg_w)[0]),
                                                             logits=pre_logit_nn_z) \
-                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.diag_part(pre_logit_nn_z)),
-                                                              logits=tf.diag_part(pre_logit_nn_z))
+                    - tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(tf.linalg.diag_part(pre_logit_nn_z)),
+                                                              logits=tf.linalg.diag_part(pre_logit_nn_z))
         first_order_loss = tf.reduce_mean(pp_x_loss + pp_z_loss + nn_x_loss + nn_z_loss)
 
 
         #==========================================================
         loss = recon_loss * self.beta + first_order_loss * self.gamma + cross_modal_loss * self.alpha
 
-
-        vars_net = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'net_encoder')
-        vars_att = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'att_encoder')
+        vars_net = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES, 'net_encoder')
+        vars_att = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES, 'att_encoder')
         print(vars_net)
 
-
-        opt = tf.train.AdamOptimizer(self.learning_rate).minimize(loss, var_list=vars_net+vars_att)
+        opt = tf.compat.v1.train.AdamOptimizer(self.learning_rate).minimize(loss, var_list=vars_net+vars_att)
 
         return opt, loss
 
     def _build_eval_graph(self):
         net_H, _ = self.model.forward_net(self.x, drop_prob=0.0, reuse=True)
         att_H, _ = self.model.forward_att(self.z, drop_prob=0.0, reuse=True)
-        H = tf.concat([tf.nn.l2_normalize(net_H, dim=1), tf.nn.l2_normalize(att_H, dim=1)], axis=1)
+        H = tf.concat([tf.compat.v1.nn.l2_normalize(net_H, dim=1), tf.compat.v1.nn.l2_normalize(att_H, dim=1)], axis=1)
 
         return net_H, att_H, H
 
@@ -173,7 +171,7 @@ class Trainer(object):
         self.save_model()
 
     def infer(self, graph):
-        self.sess.run(tf.global_variables_initializer())
+        self.sess.run(tf.compat.v1.global_variables_initializer())
         self.restore_model()
         print("Model restored from file: %s" % self.model_path)
 
@@ -193,7 +191,6 @@ class Trainer(object):
 
             if graph.is_epoch_end:
                 break
-
 
         test_ratio = np.arange(0.5, 1.0, 0.2)
         dane = []
@@ -235,9 +232,7 @@ class Trainer(object):
         sim = np.dot(X, Z.T)
         neg_idx = np.argmin(sim, axis=1)
 
-
         return order, neg_idx
-
 
     def save_model(self):
         self.saver.save(self.sess, self.model_path)

@@ -144,7 +144,8 @@ def get_walks(graph, config):
     for node in graph.G.nodes():
         node_map[graph.G.nodes[node]['id']] = node
 
-    for line in walks:
+    from tqdm import tqdm
+    for line in tqdm(walks):
         for pos, node in enumerate(line):
             start = max(0, pos - window_size)
             for pos2, node2 in enumerate(line[start:(pos + window_size + 1)], start):
@@ -163,4 +164,3 @@ def get_walks(graph, config):
 
     with open(walks_file, 'w') as fid:
         fid.write('\n'.join(edge_list))
-

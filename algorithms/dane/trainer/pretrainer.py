@@ -12,6 +12,7 @@ class PreTrainer(object):
         self.net_shape = config['net_shape']
         self.att_shape = config['att_shape']
         self.pretrain_params_path = config['pretrain_params_path']
+        self.dropout = config['drop_prob']
 
         self.W_init = {}
         self.b_init = {}
@@ -26,7 +27,6 @@ class PreTrainer(object):
         for i in range(len(shape) - 1):
             print(shape[i], shape[i+1])
 
-
             activation_fun1 = lrelu
             activation_fun2 = lrelu
             if i == 0:
@@ -36,9 +36,8 @@ class PreTrainer(object):
             if i == len(shape) - 2:
                 activation_fun1 = None
 
-
             SAE = SingleAE([shape[i], shape[i + 1]],
-                           {"iters": 50000, "batch_size": 256, "lr": 1e-3, "dropout": 0.8}, data,
+                           {"iters": 500, "batch_size": 256, "lr": 1e-3, "dropout": 0.8}, data,
                            i, activation_fun1, activation_fun2)
             SAE.doTrain()
             W1, b1, W2, b2 = SAE.getWb()

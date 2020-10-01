@@ -82,7 +82,7 @@ def get_gpus(num_gpu=1):
 def get_free_gpu(max_gpu_utilization=40, min_free_memory=0.5, num_gpu=1):
   def get_gpu_info():
     # Get the gpu information
-    gpu_info = subprocess.check_output(["nvidia-smi", "--format=csv,noheader,nounits", "--query-gpu=index,memory.total,memory.free,memory.used,utilization.gpu"]).decode()
+    gpu_info = subprocess.check_output(["C:\Windows\System32\DriverStore\FileRepository\\nv_dispi.inf_amd64_b2dd7130a686a22f\\nvidia-smi", "--format=csv,noheader,nounits", "--query-gpu=index,memory.total,memory.free,memory.used,utilization.gpu"]).decode()
     gpu_info = gpu_info.split('\n')
 
     gpu_info_array = []
