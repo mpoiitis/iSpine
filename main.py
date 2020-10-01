@@ -3,6 +3,7 @@ from evaluation.evaluation import auto_kmeans
 from algorithms.gcn.gcn import run_gcn
 from algorithms.dgi.dgi import run_dgi
 from algorithms.vgae.vgae import run_vgae
+from algorithms.agc.agc import run_agc
 
 
 def parse_args():
@@ -48,6 +49,10 @@ def parse_args():
     vgae_parser.add_argument("--sparse", dest='sparse', action='store_true', help="Use sparse form of arrays")
     vgae_parser.add_argument("--dropout", default=0.0, type=float, help="Dropout rate (1 - keep probability). Default is 0.0.")
 
+    agc_parser = embedding_subparsers.add_parser('agc', help='AGC method.')
+    agc_parser.add_argument("--max_iter", default=60, type=int, help="Number of max iterations if there is no conversion in intra_C. Default is 60.")
+
+
     evaluation_parser = subparsers.add_parser('evaluation', help="Runs an evaluation algorithm to test the produced embeddings.")
     evaluation_parser.add_argument('--input', required=True, help='The embedding file.')
     evaluation_parser.add_argument('--gt_input', required=True, help='Path of file containing ground truth')
@@ -66,6 +71,8 @@ if __name__ == "__main__":
         run_vgae(args)
     elif args.method == 'dgi':
         run_dgi(args)
+    elif args.method == 'agc':
+        run_agc(args)
     else:
         pass
 
