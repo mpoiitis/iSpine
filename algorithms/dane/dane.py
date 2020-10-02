@@ -6,6 +6,8 @@ from .trainer.trainer import Trainer
 from .model.model import Model
 import os
 import tensorflow as tf
+from utils.utils import save_results
+from evaluation.evaluation import auto_kmeans
 
 def run_dane(args):
     tf.compat.v1.disable_eager_execution()
@@ -21,7 +23,7 @@ def run_dane(args):
         'num_walks': args.num_walks,
         'walk_length': args.walk_length,
         'window_size': args.window_size,
-        'walks_file': args.output
+        'walks_file': args.walks_file
     }
 
     graph = Graph(graph_config)
@@ -35,7 +37,7 @@ def run_dane(args):
 
     dataset_config = {'feature_file': args.feature_file,
                       'graph_file': 'data/dane_data/{}/edges.txt'.format(args.input),
-                      'walks_file': args.output,
+                      'walks_file': args.walks_file,
                       'label_file': args.label_file}
     graph = Dataset(dataset_config)
 
@@ -43,8 +45,8 @@ def run_dane(args):
         os.makedirs('./Log/{}'.format(args.input))
 
     pretrain_config = {
-        'net_shape': args.net_shape,
-        'att_shape': args.att_shape,
+        'net_shape': [args.net_hidden, args.dimension],
+        'att_shape': [args.att_hidden, args.dimension],
         'net_input_dim': graph.num_nodes,
         'att_input_dim': graph.num_feas,
         'drop_prob': args.dropout,
@@ -55,8 +57,8 @@ def run_dane(args):
     pretrainer.pretrain(graph.Z, 'att')
 
     model_config = {
-        'net_shape': args.net_shape,
-        'att_shape': args.att_shape,
+        'net_shape': [args.net_hidden, args.dimension],
+        'att_shape': [args.att_hidden, args.dimension],
         'net_input_dim': graph.num_nodes,
         'att_input_dim': graph.num_feas,
         'is_init': True,
@@ -65,8 +67,8 @@ def run_dane(args):
     model = Model(model_config)
 
     trainer_config = {
-        'net_shape': args.net_shape,
-        'att_shape': args.att_shape,
+        'net_shape': [args.net_hidden, args.dimension],
+        'att_shape': [args.att_hidden, args.dimension],
         'net_input_dim': graph.num_nodes,
         'att_input_dim': graph.num_feas,
         'drop_prob': args.dropout,
@@ -80,4 +82,13 @@ def run_dane(args):
 
     trainer = Trainer(model, trainer_config)
     trainer.train(graph)
-    trainer.infer(graph)
+    embeds = trainer.infer(graph)
+
+    # remove temporary walks file
+    os.remove(args.walks_file)
+    print(embeds.shape)
+    # save embeddings
+    save_results(args, embeds)
+
+    # CLUSTERING
+    cluster_assignments = auto_kmeans(embedding_file=args.output, kmax=10)

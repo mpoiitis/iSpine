@@ -198,7 +198,10 @@ def save_results(args, result, node_dict=None):
         l.extend(embedding)
         list_with_index.append(l)
 
-    columns = ["id"] + ["X_" + str(dim) for dim in range(args.dimension)]
+    if args.method == 'dane':  # dane concatenates two sub-embeddings, so we need double the size of each one
+        columns = ["id"] + ["X_" + str(dim) for dim in range(2*args.dimension)]
+    else:
+        columns = ["id"] + ["X_" + str(dim) for dim in range(args.dimension)]
     df = pd.DataFrame(list_with_index, columns=columns)
     df.to_csv(args.output, index=None)
 

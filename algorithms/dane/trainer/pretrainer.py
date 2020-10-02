@@ -49,7 +49,7 @@ class PreTrainer(object):
             self.W_init[name] = W2
             self.b_init[name] = b2
 
-            data = SAE.getH()
+            data = SAE.getH(self.dropout)
 
         with open(self.pretrain_params_path, 'wb') as handle:
             pickle.dump([self.W_init, self.b_init], handle, protocol=pickle.HIGHEST_PROTOCOL)

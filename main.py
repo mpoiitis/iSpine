@@ -11,8 +11,8 @@ def parse_args():
     subparsers = parser.add_subparsers(dest='mode', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
 
     embedding_parser = subparsers.add_parser('embedding', help="Runs an embedding algorithm to produce the representation.")
-    embedding_parser.add_argument('--input', required=True, choices=['cora', 'citeseer', 'pubmed'], help="Input graph dataset. Options: ['cora', 'citeseer', 'pubmed']")
-    embedding_parser.add_argument('--output', required=True, help='Output representation file path.')
+    embedding_parser.add_argument('input', choices=['cora', 'citeseer', 'pubmed'], help="Input graph dataset. Options: ['cora', 'citeseer', 'pubmed']")
+    embedding_parser.add_argument('output', help='Output representation file path.')
     embedding_subparsers = embedding_parser.add_subparsers(dest='method', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
 
     gcn_parser = embedding_subparsers.add_parser('gcn', help='GCN method.')
@@ -53,6 +53,7 @@ def parse_args():
     agc_parser.add_argument("--max_iter", default=60, type=int, help="Number of max iterations if there is no conversion in intra_C. Default is 60.")
 
     dane_parser = embedding_subparsers.add_parser('dane', help='DANE method.')
+    dane_parser.add_argument('--walks-file', required=True, help='Walks file path.')
     dane_parser.add_argument('--label-file', required=True, help='Label file path.')
     dane_parser.add_argument('--feature-file', required=True, help='Feature file path.')
     dane_parser.add_argument('--node-status', default='', help='Node status file path.')
@@ -60,8 +61,9 @@ def parse_args():
     dane_parser.add_argument('--num-walks', default=10, type=int, help="Number of walks. Default is 10.")
     dane_parser.add_argument('--walk-length', default=80, type=int, help="The length of the walk. Default is 80.")
     dane_parser.add_argument('--window-size', default=10, type=int, help="The size of the window. Default is 10.")
-    dane_parser.add_argument('--net-shape', default=[200, 100], type=list, help="Shape of autoencoder. Default is [200, 100]")
-    dane_parser.add_argument('--att-shape', default=[200, 100], type=list, help="Shape of autoencoder for attributes. Default is [200, 100]")
+    dane_parser.add_argument("--dimension", default=100, type=int, help="Embedding dimension. Default is 100.")
+    dane_parser.add_argument('--net-hidden', default=200, type=int, help="Hidden layer dimension of connectivity network. Default is 200")
+    dane_parser.add_argument('--att-hidden', default=200, type=int, help="Hidden layer dimension of attribute network. Default is 200")
     dane_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
     dane_parser.add_argument("--learning-rate", default=0.00001, type=float, help="Initial learning rate. Default is 0.00001.")
     dane_parser.add_argument("--batch-size", default=100, type=int, help="Size of the batch used for training. Default is 100.")
@@ -71,8 +73,8 @@ def parse_args():
     dane_parser.add_argument("--gamma", default=500., type=float, help="Initial learning rate. Default is 500.")
 
     evaluation_parser = subparsers.add_parser('evaluation', help="Runs an evaluation algorithm to test the produced embeddings.")
-    evaluation_parser.add_argument('--input', required=True, help='The embedding file.')
-    evaluation_parser.add_argument('--gt_input', required=True, help='Path of file containing ground truth')
+    evaluation_parser.add_argument('input', help='The embedding file.')
+    evaluation_parser.add_argument('gt_input', help='Path of file containing ground truth')
     evaluation_parser.add_argument('--normalize', dest='normalize', action='store_true', help='If given, data will be normalized')
     evaluation_parser.add_argument('--k', default=5, type=int, help='Number of clusters')
     args = parser.parse_args()

@@ -1,7 +1,6 @@
 import tensorflow as tf
 import numpy as np
 from sklearn import preprocessing
-from ..utils.utils import multi_label_classification, check_multi_label_classification
 
 
 class Trainer(object):
@@ -165,8 +164,7 @@ class Trainer(object):
 
                     if graph.is_epoch_end:
                         break
-                micro_f1, macro_f1 = check_multi_label_classification(train_emb, train_label, 0.5)
-                print('Epoch-{}, loss: {:.4f}, Micro_f1 {:.4f}, Macro_fa {:.4f}'.format(epoch, cost, micro_f1, macro_f1))
+
 
         self.save_model()
 
@@ -192,13 +190,7 @@ class Trainer(object):
             if graph.is_epoch_end:
                 break
 
-        test_ratio = np.arange(0.5, 1.0, 0.2)
-        dane = []
-        for tr in test_ratio[-1::-1]:
-            print('============train ratio-{}=========='.format(1 - tr))
-            micro, macro = multi_label_classification(train_emb, train_label, tr)
-            dane.append('{:.4f}'.format(micro) + ' & ' + '{:.4f}'.format(macro))
-        print(' & '.join(dane))
+        return train_emb
 
     def generate_samples(self, graph):
         X = []
