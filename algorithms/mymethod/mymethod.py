@@ -4,7 +4,11 @@ import numpy as np
 import scipy.sparse as sp
 from sklearn.cluster import KMeans
 from utils.metrics import clustering_metrics, square_dist
-
+from .models import VAE, AE
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import MeanSquaredError
+from tensorflow.keras.callbacks import EarlyStopping
+from utils.utils import save_results
 
 def normalize_adj(adj, type='sym'):
     """Symmetrically normalize adjacency matrix."""
@@ -35,8 +39,7 @@ def preprocess_adj(adj, type='sym', loop=True):
     return adj_normalized
 
 
-def run_agc(args):
-
+def run_mymethod(args):
     dataset = args.input
     data = sio.loadmat('data/agc_data/{}.mat'.format(dataset))
     feature = data['fea']
@@ -48,11 +51,10 @@ def run_agc(args):
     gnd = gnd.T
     gnd = gnd - 1
     gnd = gnd[0, :]
-    k = len(np.unique(gnd))
+    m = len(np.unique(gnd))
     adj = sp.coo_matrix(adj)
     intra_list = []
     intra_list.append(10000)
-
 
     acc_list = []
     nmi_list = []
@@ -66,7 +68,6 @@ def run_agc(args):
     adj_normalized = preprocess_adj(adj)
     adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
 
-
     tt = 0
     while 1:
         tt = tt + 1
@@ -77,14 +78,38 @@ def run_agc(args):
         nm = np.zeros(rep)
         f1 = np.zeros(rep)
 
-        feature = adj_normalized.dot(feature)
+        adj_normalized_k = adj_normalized ** power
 
-        u, s, v = sp.linalg.svds(feature, k=k, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
+        X = adj_normalized_k.dot(feature)
+        K = X.dot(X.transpose())
+        W = 1/2 * ( np.absolute(K) + np.absolute(K.transpose()) )
+
+        u, s, v = sp.linalg.svds(W, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
+
+        # feed k-order convolution to autoencoder
+        es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+        optimizer = Adam(lr=args.learning_rate)
+
+        if args.type == 'ae':
+            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+            model.compile(optimizer=optimizer, loss=MeanSquaredError())
+        else:
+            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+            model.compile(optimizer=optimizer)
+        print('Training model for {}-order convolution'.format(power))
+        model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+
+        embeds = model.embed(u)
+
+        if args.save and power == args.save:
+            # save embeddings
+            embeds = [e.numpy() for e in embeds]
+            save_results(args, embeds)
 
         for i in range(rep):
-            kmeans = KMeans(n_clusters=k).fit(u)
-            predict_labels = kmeans.predict(u)
-            intraD[i] = square_dist(predict_labels, feature)
+            kmeans = KMeans(n_clusters=m).fit(embeds)
+            predict_labels = kmeans.predict(embeds)
+            intraD[i] = square_dist(predict_labels, X)
             cm = clustering_metrics(gnd, predict_labels)
             ac[i], nm[i], f1[i] = cm.evaluationClusterModelFromLabel()
 

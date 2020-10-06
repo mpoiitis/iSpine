@@ -19,6 +19,7 @@ Keras-Preprocessing==1.1.2
 kiwisolver==1.2.0
 Markdown==3.2.2
 matplotlib==3.3.2
+munkres==1.1.4
 networkx==2.5
 numpy==1.18.5
 oauthlib==3.1.0
@@ -45,6 +46,7 @@ termcolor==1.1.0
 threadpoolctl==2.1.0
 torch==1.6.0+cu101
 torchvision==0.7.0+cu101
+tqdm==4.50.0
 urllib3==1.25.10
 Werkzeug==1.0.1
 wrapt==1.12.1

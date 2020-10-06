@@ -5,6 +5,8 @@ from algorithms.dgi.dgi import run_dgi
 from algorithms.vgae.vgae import run_vgae
 from algorithms.agc.agc import run_agc
 from algorithms.dane.dane import run_dane
+from algorithms.mymethod.mymethod import run_mymethod
+
 
 def parse_args():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter, conflict_handler='resolve')
@@ -68,6 +70,18 @@ def parse_args():
     dane_parser.add_argument("--beta", default=100., type=float, help="Initial learning rate. Default is 100.")
     dane_parser.add_argument("--gamma", default=500., type=float, help="Initial learning rate. Default is 500.")
 
+    mymethod_parser = embedding_subparsers.add_parser('mymethod', help='My no-name method.')
+    mymethod_parser.add_argument("--type", default='ae', type=str, choices=['ae', 'vae'], help="Type of autoencoder. Simple or variational. Default is ae.")
+    mymethod_parser.add_argument("--max_iter", default=60, type=int, help="Number of max iterations if there is no conversion in intra_C. Default is 60.")
+    mymethod_parser.add_argument("--dimension", default=100, type=int, help="Embedding dimension. Default is 100.")
+    mymethod_parser.add_argument('--hidden', default=200, type=int, help="Hidden layer dimension. Default is 200.")
+    mymethod_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
+    mymethod_parser.add_argument("--learning-rate", default=0.00001, type=float, help="Initial learning rate. Default is 0.00001.")
+    mymethod_parser.add_argument("--batch-size", default=100, type=int, help="Size of the batch used for training. Default is 100.")
+    mymethod_parser.add_argument("--epochs", default=500, type=int, help="Number of epochs. Default is 500.")
+    mymethod_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
+    mymethod_parser.add_argument("--save", default=None, type=int, help="If given, it saves the embedding of the given order convolution. E.g. 2-order if save=2. Default is None.")
+
     evaluation_parser = subparsers.add_parser('evaluation', help="Runs an evaluation algorithm to test the produced embeddings.")
     evaluation_parser.add_argument('input', help='The embedding file.')
     evaluation_parser.add_argument('gt_input', help='Path of file containing ground truth')
@@ -90,6 +104,8 @@ if __name__ == "__main__":
         run_agc(args)
     elif args.method == 'dane':
         run_dane(args)
+    elif args.method == 'mymethod':
+        run_mymethod(args)
     else:
         pass
 
