@@ -6,7 +6,7 @@ from algorithms.vgae.vgae import run_vgae
 from algorithms.agc.agc import run_agc
 from algorithms.dane.dane import run_dane
 from algorithms.mymethod.mymethod import run_mymethod
-
+from algorithms.gat.gat import run_gat
 
 def parse_args():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter, conflict_handler='resolve')
@@ -70,6 +70,19 @@ def parse_args():
     dane_parser.add_argument("--beta", default=100., type=float, help="Initial learning rate. Default is 100.")
     dane_parser.add_argument("--gamma", default=500., type=float, help="Initial learning rate. Default is 500.")
 
+    gat_parser = embedding_subparsers.add_parser('gat', help='GAT method.')
+    gat_parser.add_argument("--epochs", default=200, type=int, help="Number of epochs. Default is 200.")
+    gat_parser.add_argument("--batch-size", default=1, type=int, help="Size of the batch used for training. Default is 1.")
+    gat_parser.add_argument("--hidden", default=512, type=int, help="Neurons in hidden layer. Default is 512.")
+    gat_parser.add_argument("--dimension", default=128, type=int, help="Embedding dimension. Default is 128.")
+    gat_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
+    gat_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
+    gat_parser.add_argument("--weight-decay", default=0.0, type=float, help="Weight for L2 loss on embedding matrix. E.g. 0.008. Default is 0.0.")
+    gat_parser.add_argument("--sparse", dest='sparse', action='store_true', help="Use sparse form of arrays")
+    gat_parser.add_argument("--residual", dest='residual', action='store_true', help="Determines whether to add seq to ret")
+    gat_parser.add_argument("--ffd-drop", default=0.6, type=float, help="Dropout rate (1 - keep probability) for features. Default is 0.6.")
+    gat_parser.add_argument("--attn-drop", default=0.6, type=float, help="Dropout rate (1 - keep probability) for attention. Default is 0.6.")
+
     mymethod_parser = embedding_subparsers.add_parser('mymethod', help='My no-name method.')
     mymethod_parser.add_argument("--type", default='ae', type=str, choices=['ae', 'vae'], help="Type of autoencoder. Simple or variational. Default is ae.")
     mymethod_parser.add_argument("--max_iter", default=60, type=int, help="Number of max iterations if there is no conversion in intra_C. Default is 60.")
@@ -104,6 +117,8 @@ if __name__ == "__main__":
         run_agc(args)
     elif args.method == 'dane':
         run_dane(args)
+    elif args.method == 'gat':
+        run_gat(args)
     elif args.method == 'mymethod':
         run_mymethod(args)
     else:

@@ -86,29 +86,29 @@ def run_mymethod(args):
 
         u, s, v = sp.linalg.svds(X, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
 
-        # feed k-order convolution to autoencoder
-        es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-        optimizer = Adam(lr=args.learning_rate)
+        # # feed k-order convolution to autoencoder
+        # es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+        # optimizer = Adam(lr=args.learning_rate)
+        #
+        # if args.type == 'ae':
+        #     model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+        #     model.compile(optimizer=optimizer, loss=MeanSquaredError())
+        # else:
+        #     model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+        #     model.compile(optimizer=optimizer)
+        # print('Training model for {}-order convolution'.format(power))
+        # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+        #
+        # embeds = model.embed(u)
 
-        if args.type == 'ae':
-            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
-            model.compile(optimizer=optimizer, loss=MeanSquaredError())
-        else:
-            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
-            model.compile(optimizer=optimizer)
-        print('Training model for {}-order convolution'.format(power))
-        model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-
-        embeds = model.embed(u)
-
-        if args.save and power == args.save:
-            # save embeddings
-            embeds = [e.numpy() for e in embeds]
-            save_results(args, embeds)
+        # if args.save and power == args.save:
+        #     # save embeddings
+        #     embeds = [e.numpy() for e in embeds]
+        #     save_results(args, embeds)
 
         for i in range(rep):
-            kmeans = KMeans(n_clusters=m).fit(embeds)
-            predict_labels = kmeans.predict(embeds)
+            kmeans = KMeans(n_clusters=m).fit(u)
+            predict_labels = kmeans.predict(u)
             intraD[i] = square_dist(predict_labels, X)
             cm = clustering_metrics(gnd, predict_labels)
             ac[i], nm[i], f1[i] = cm.evaluationClusterModelFromLabel()
