@@ -1,7 +1,8 @@
 import tensorflow as tf
 import numpy as np
-from utils.utils import load_data, preprocess_features, sparse_to_tuple, preprocess_adj_bias, adj_to_bias
+from utils.utils import load_data, preprocess_features, preprocess_adj_bias, adj_to_bias, save_results
 from .models import GAT
+from evaluation.evaluation import auto_kmeans
 
 
 def train(model, inputs, bias_mat, lbl_in, msk_in, optimizer):
@@ -22,8 +23,8 @@ def evaluate(model, inputs, bias_mat, lbl_in, msk_in):
 
 def run_gat(args):
 
-    hid_units = [8]  # numbers of hidden units per each attention head in each layer
-    n_heads = [8, 1]  # additional entry for the output layer
+    hid_units = args.hidden  # numbers of hidden units per each attention head in each layer
+    n_heads = [hid_units, 1]  # additional entry for the output layer
 
     # load data
     A, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data(args.input)
@@ -132,12 +133,9 @@ def run_gat(args):
         else:
             bbias = biases[step * args.batch_size:(step + 1) * args.batch_size]
 
-        _, acc, loss = evaluate(model,
-                                            inputs=features[step * args.batch_size:(step + 1) * args.batch_size],
-                                            bias_mat=bbias,
-                                            lbl_in=y_test[step * args.batch_size:(step + 1) * args.batch_size],
-                                            msk_in=test_mask[step * args.batch_size:(step + 1) * args.batch_size],
-                                            training=False)
+        _, acc, loss = evaluate(model, inputs=features[step * args.batch_size:(step + 1) * args.batch_size],
+                                bias_mat=bbias, lbl_in=y_test[step * args.batch_size:(step + 1) * args.batch_size],
+                                msk_in=test_mask[step * args.batch_size:(step + 1) * args.batch_size])
         test_loss += loss
         test_acc += acc
         step += 1

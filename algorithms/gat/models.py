@@ -42,3 +42,8 @@ class GAT(tf.keras.Model):
         accuracy = masked_accuracy(log_resh, lab_resh, msk_resh)
 
         return logits, accuracy, loss
+
+    def embed(self, inputs, bias_mat):
+        logits = self.inferencing(inputs=inputs, bias_mat=bias_mat, training=False)
+        logits = tf.reshape(logits, [-1, self.nb_classes])
+        return logits
