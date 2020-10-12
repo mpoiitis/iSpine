@@ -83,7 +83,7 @@ def parse_args():
     gat_parser.add_argument("--attn-drop", default=0.6, type=float, help="Dropout rate (1 - keep probability) for attention. Default is 0.6.")
 
     mymethod_parser = embedding_subparsers.add_parser('mymethod', help='My no-name method.')
-    mymethod_parser.add_argument("--type", default='ae', type=str, choices=['ae', 'vae'], help="Type of autoencoder. Simple or variational. Default is ae.")
+    mymethod_parser.add_argument("--model", default='ae', type=str, choices=['ae', 'vae', 'dvae'], help="Type of autoencoder. Simple, variational or denoising. Default is ae.")
     mymethod_parser.add_argument("--max_iter", default=60, type=int, help="Number of max iterations if there is no conversion in intra_C. Default is 60.")
     mymethod_parser.add_argument("--dimension", default=100, type=int, help="Embedding dimension. Default is 100.")
     mymethod_parser.add_argument('--hidden', default=200, type=int, help="Hidden layer dimension. Default is 200.")

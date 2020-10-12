@@ -4,11 +4,11 @@ import numpy as np
 import scipy.sparse as sp
 from sklearn.cluster import KMeans
 from utils.metrics import clustering_metrics, square_dist
-from .models import VAE, AE
+from .models import DVAE, AE, VAE
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping
-from utils.utils import save_results
+from utils.utils import save_results, salt_and_pepper
 
 def normalize_adj(adj, type='sym'):
     """Symmetrically normalize adjacency matrix."""
@@ -51,6 +51,8 @@ def run_mymethod(args):
     gnd = gnd.T
     gnd = gnd - 1
     gnd = gnd[0, :]
+
+    num_nodes = adj.shape[0]
     m = len(np.unique(gnd))
     adj = sp.coo_matrix(adj)
     intra_list = []
@@ -69,6 +71,7 @@ def run_mymethod(args):
     adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
 
     tt = 0
+
     while 1:
         tt = tt + 1
         power = tt
@@ -79,36 +82,44 @@ def run_mymethod(args):
         f1 = np.zeros(rep)
 
         adj_normalized_k = adj_normalized ** power
-
         X = adj_normalized_k.dot(feature)
         # K = X.dot(X.transpose())
         # W = 1/2 * ( np.absolute(K) + np.absolute(K.transpose()) )
 
         u, s, v = sp.linalg.svds(X, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
 
-        # # feed k-order convolution to autoencoder
-        # es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-        # optimizer = Adam(lr=args.learning_rate)
-        #
-        # if args.type == 'ae':
-        #     model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
-        #     model.compile(optimizer=optimizer, loss=MeanSquaredError())
-        # else:
-        #     model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
-        #     model.compile(optimizer=optimizer)
-        # print('Training model for {}-order convolution'.format(power))
-        # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-        #
-        # embeds = model.embed(u)
+        # feed k-order convolution to autoencoder
 
-        # if args.save and power == args.save:
-        #     # save embeddings
-        #     embeds = [e.numpy() for e in embeds]
-        #     save_results(args, embeds)
+        es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+        optimizer = Adam(lr=args.learning_rate)
+        print('Training model for {}-order convolution'.format(power))
+        if args.model == 'ae':
+            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+            model.compile(optimizer=optimizer, loss=MeanSquaredError())
+            model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+        elif args.model == 'vae':
+            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+            model.compile(optimizer=optimizer)
+            model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+        elif args.model == 'dvae':
+            # distort input features for denoising auto encoder
+            u_distorted = salt_and_pepper(u, 0.2)
+
+            model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1],
+                        dropout=args.dropout)
+            model.compile(optimizer=optimizer)
+            model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+
+        embeds = model.embed(u)
+
+        if args.save and power == args.save:
+            # save embeddings
+            embeds_to_save = [e.numpy() for e in embeds]
+            save_results(args, embeds_to_save)
 
         for i in range(rep):
-            kmeans = KMeans(n_clusters=m).fit(u)
-            predict_labels = kmeans.predict(u)
+            kmeans = KMeans(n_clusters=m).fit(embeds)
+            predict_labels = kmeans.predict(embeds)
             intraD[i] = square_dist(predict_labels, X)
             cm = clustering_metrics(gnd, predict_labels)
             ac[i], nm[i], f1[i] = cm.evaluationClusterModelFromLabel()

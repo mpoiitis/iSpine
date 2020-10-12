@@ -319,3 +319,10 @@ def adj_to_bias(adj, sizes, nhood=1):
                 if mt[g][i][j] > 0.0:
                     mt[g][i][j] = 1.0
     return -1e9 * (1.0 - mt)
+
+
+def salt_and_pepper(input, noise=0.2):
+    a = np.random.binomial(n=1, p=(1-noise), size=input.shape)
+    b = np.random.binomial(n=1, p=0.5, size=input.shape)
+    c = np.equal(a, 0) * b
+    return input * a + c
