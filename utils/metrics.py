@@ -4,6 +4,7 @@ from munkres import Munkres
 import numpy as np
 import scipy.sparse as sp
 
+
 def masked_softmax_cross_entropy(preds, labels, mask):
     """
     Softmax cross-entropy loss with masking.
@@ -84,6 +85,7 @@ class clustering_metrics():
 
         acc = metrics.accuracy_score(self.true_label, new_predict)
         f1_macro = metrics.f1_score(self.true_label, new_predict, average='macro')
+
         return acc, f1_macro
 
 

@@ -1,14 +1,17 @@
 import scipy.io as sio
 import time
+import os
 import numpy as np
 import scipy.sparse as sp
 from sklearn.cluster import KMeans
 from utils.metrics import clustering_metrics, square_dist
-from .models import DVAE, AE, VAE
+from .models import DAE, DVAE, AE, VAE
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from utils.utils import save_results, salt_and_pepper
+from sklearn.metrics import silhouette_score
+
 
 def normalize_adj(adj, type='sym'):
     """Symmetrically normalize adjacency matrix."""
@@ -40,6 +43,9 @@ def preprocess_adj(adj, type='sym', loop=True):
 
 
 def run_mymethod(args):
+
+    if not os.path.exists('output/tmp'):
+        os.makedirs('output/tmp')
     dataset = args.input
     data = sio.loadmat('data/agc_data/{}.mat'.format(dataset))
     feature = data['fea']
@@ -58,49 +64,50 @@ def run_mymethod(args):
     intra_list = []
     intra_list.append(10000)
 
+    sil_list = []
     acc_list = []
     nmi_list = []
     f1_list = []
-    stdacc_list = []
-    stdnmi_list = []
-    stdf1_list = []
+    powers = []
+    d_intra = []
     max_iter = args.max_iter
-    rep = 10
+
     t = time.time()
     adj_normalized = preprocess_adj(adj)
     adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
 
     tt = 0
-
     while 1:
         tt = tt + 1
         power = tt
 
-        intraD = np.zeros(rep)
-        ac = np.zeros(rep)
-        nm = np.zeros(rep)
-        f1 = np.zeros(rep)
-
         adj_normalized_k = adj_normalized ** power
         X = adj_normalized_k.dot(feature)
-        # K = X.dot(X.transpose())
-        # W = 1/2 * ( np.absolute(K) + np.absolute(K.transpose()) )
+        K = X.dot(X.transpose())
+        W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
 
-        u, s, v = sp.linalg.svds(X, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
+        u, s, v = sp.linalg.svds(W, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
 
         # feed k-order convolution to autoencoder
 
         es = EarlyStopping(monitor='loss', patience=args.early_stopping)
         optimizer = Adam(lr=args.learning_rate)
+        # # save weights
+        # checkpoint_filepath = 'output/tmp/checkpoint'
+        # model_checkpoint_callback = ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, monitor='loss',
+        #     mode='min', save_best_only=True)
+
         print('Training model for {}-order convolution'.format(power))
         if args.model == 'ae':
             model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
             model.compile(optimizer=optimizer, loss=MeanSquaredError())
             model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'vae':
             model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
             model.compile(optimizer=optimizer)
             model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'dvae':
             # distort input features for denoising auto encoder
             u_distorted = salt_and_pepper(u, 0.2)
@@ -109,7 +116,17 @@ def run_mymethod(args):
                         dropout=args.dropout)
             model.compile(optimizer=optimizer)
             model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
+        elif args.model == 'dae':
+            # distort input features for denoising auto encoder
+            u_distorted = salt_and_pepper(u, 0.2)
 
+            model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1],
+                        dropout=args.dropout)
+            model.compile(optimizer=optimizer)
+            model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
+        # model.load_weights(checkpoint_filepath)
         embeds = model.embed(u)
 
         if args.save and power == args.save:
@@ -117,39 +134,61 @@ def run_mymethod(args):
             embeds_to_save = [e.numpy() for e in embeds]
             save_results(args, embeds_to_save)
 
-        for i in range(rep):
-            kmeans = KMeans(n_clusters=m).fit(embeds)
-            predict_labels = kmeans.predict(embeds)
-            intraD[i] = square_dist(predict_labels, X)
-            cm = clustering_metrics(gnd, predict_labels)
-            ac[i], nm[i], f1[i] = cm.evaluationClusterModelFromLabel()
+        kmeans = KMeans(n_clusters=m).fit(embeds)
+        predict_labels = kmeans.predict(embeds)
+        intraD = square_dist(predict_labels, X)
+        cm = clustering_metrics(gnd, predict_labels)
+        sil = silhouette_score(embeds, predict_labels)
+        ac, nm, f1 = cm.evaluationClusterModelFromLabel()
 
-        intramean = np.mean(intraD)
-        acc_means = np.mean(ac)
-        acc_stds = np.std(ac)
-        nmi_means = np.mean(nm)
-        nmi_stds = np.std(nm)
-        f1_means = np.mean(f1)
-        f1_stds = np.std(f1)
-
-        intra_list.append(intramean)
-        acc_list.append(acc_means)
-        stdacc_list.append(acc_stds)
-        nmi_list.append(nmi_means)
-        stdnmi_list.append(nmi_stds)
-        f1_list.append(f1_means)
-        stdf1_list.append(f1_stds)
-        print('power: {}'.format(power),
-              'intra_dist: {}'.format(intramean),
-              'acc_mean: {}'.format(acc_means),
-              'acc_std: {}'.format(acc_stds),
-              'nmi_mean: {}'.format(nmi_means),
-              'nmi_std: {}'.format(nmi_stds),
-              'f1_mean: {}'.format(f1_means),
-              'f1_std: {}'.format(f1_stds))
+        intra_list.append(intraD)
+        powers.append(power)
+        sil_list.append(sil)
+        d_intra.append(intra_list[tt] - intra_list[tt - 1])
+        acc_list.append(ac)
+        nmi_list.append(nm)
+        f1_list.append(f1)
+        print('power: {}'.format(power), 'intra_dist: {}'.format(intraD), 'acc: {}'.format(ac), 'nmi: {}'.format(nm),
+              'f1: {}'.format(f1), 'silhouette: {}'.format(sil))
 
         if intra_list[tt] > intra_list[tt - 1] or tt > max_iter:
             print('bestpower: {}'.format(tt - 1))
             t = time.time() - t
             print('time:', t)
             break
+
+    # plot_results(d_intra, sil_list, acc_list, nmi_list, f1_list, powers, args)
+
+
+def plot_results(intra, sil, acc, nmi, f1, powers, args):
+    import matplotlib.pyplot as plt
+    filepath = 'figures/{}/{}'.format(args.method, args.model)
+    if not os.path.exists(filepath):
+        os.makedirs(filepath)
+
+    intra[0] = - 7
+
+    powers = np.array(powers)
+    acc = np.array(acc)
+    f1 = np.array(f1)
+    nmi = np.array(nmi)
+    sil = np.array(sil)
+    intra = np.array(intra)
+
+
+    fig, axs = plt.subplots(2, sharex=True)
+    axs[0].plot(powers, acc, color='purple', label='Acc')
+    axs[0].plot(powers, f1, color='yellow', label='F1')
+    axs[0].plot(powers, nmi, color='green', label='NMI')
+    axs[0].plot(powers, sil, color='red', label='Silhouette')
+    axs[0].set_xlabel('k')
+    axs[0].set_ylabel('Score')
+    axs[1].plot(powers, intra, color='blue', label='D_Intra')
+    axs[1].set_xlabel('k')
+    axs[1].set_ylabel('Score')
+    fig.suptitle('learning rate: {}, epochs: {}, dimension: {}, dropout: {}'.format(args.learning_rate, args.epochs, args.dimension, args.dropout))
+    axs[0].legend()
+    axs[1].legend()
+    filepath = filepath + '/' + str(args.model) + '_' + str(args.epochs) + '_' + str(args.dimension) + '_' + str(args.learning_rate) + '_' + str(args.dropout) + '.png'
+    plt.savefig(filepath, format='png')
+    plt.show()
