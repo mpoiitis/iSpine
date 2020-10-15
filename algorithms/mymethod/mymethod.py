@@ -85,8 +85,8 @@ def run_mymethod(args):
         X = adj_normalized_k.dot(feature)
         K = X.dot(X.transpose())
         W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
-
-        u, s, v = sp.linalg.svds(W, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
+        u = W
+        # u, s, v = sp.linalg.svds(W, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
 
         # feed k-order convolution to autoencoder
 
