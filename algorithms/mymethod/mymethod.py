@@ -10,7 +10,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from utils.utils import save_results, salt_and_pepper
-from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
 
 
 def normalize_adj(adj, type='sym'):
@@ -64,7 +64,6 @@ def run_mymethod(args):
     intra_list = []
     intra_list.append(10000)
 
-    sil_list = []
     acc_list = []
     nmi_list = []
     f1_list = []
@@ -79,14 +78,14 @@ def run_mymethod(args):
     tt = 0
     while 1:
         tt = tt + 1
-        power = tt
+        power = 10
 
         adj_normalized_k = adj_normalized ** power
         X = adj_normalized_k.dot(feature)
-        K = X.dot(X.transpose())
-        W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
-        u = W
-        # u, s, v = sp.linalg.svds(W, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
+        # K = X.dot(X.transpose())
+        # W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
+
+        u, s, v = sp.linalg.svds(X, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
 
         # feed k-order convolution to autoencoder
 
@@ -138,18 +137,16 @@ def run_mymethod(args):
         predict_labels = kmeans.predict(embeds)
         intraD = square_dist(predict_labels, X)
         cm = clustering_metrics(gnd, predict_labels)
-        sil = silhouette_score(embeds, predict_labels)
         ac, nm, f1 = cm.evaluationClusterModelFromLabel()
 
         intra_list.append(intraD)
         powers.append(power)
-        sil_list.append(sil)
         d_intra.append(intra_list[tt] - intra_list[tt - 1])
         acc_list.append(ac)
         nmi_list.append(nm)
         f1_list.append(f1)
         print('power: {}'.format(power), 'intra_dist: {}'.format(intraD), 'acc: {}'.format(ac), 'nmi: {}'.format(nm),
-              'f1: {}'.format(f1), 'silhouette: {}'.format(sil))
+              'f1: {}'.format(f1))
 
         if intra_list[tt] > intra_list[tt - 1] or tt > max_iter:
             print('bestpower: {}'.format(tt - 1))
@@ -157,11 +154,11 @@ def run_mymethod(args):
             print('time:', t)
             break
 
-    # plot_results(d_intra, sil_list, acc_list, nmi_list, f1_list, powers, args)
+    # plot_results(d_intra, acc_list, nmi_list, f1_list, powers, args)
 
 
-def plot_results(intra, sil, acc, nmi, f1, powers, args):
-    import matplotlib.pyplot as plt
+def plot_results(intra, acc, nmi, f1, powers, args):
+
     filepath = 'figures/{}/{}'.format(args.method, args.model)
     if not os.path.exists(filepath):
         os.makedirs(filepath)
@@ -172,15 +169,12 @@ def plot_results(intra, sil, acc, nmi, f1, powers, args):
     acc = np.array(acc)
     f1 = np.array(f1)
     nmi = np.array(nmi)
-    sil = np.array(sil)
     intra = np.array(intra)
-
 
     fig, axs = plt.subplots(2, sharex=True)
     axs[0].plot(powers, acc, color='purple', label='Acc')
     axs[0].plot(powers, f1, color='yellow', label='F1')
     axs[0].plot(powers, nmi, color='green', label='NMI')
-    axs[0].plot(powers, sil, color='red', label='Silhouette')
     axs[0].set_xlabel('k')
     axs[0].set_ylabel('Score')
     axs[1].plot(powers, intra, color='blue', label='D_Intra')
