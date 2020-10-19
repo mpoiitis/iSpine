@@ -5,7 +5,7 @@ import numpy as np
 import scipy.sparse as sp
 from sklearn.cluster import KMeans
 from utils.metrics import clustering_metrics, square_dist
-from .models import DAE, DVAE, AE, VAE
+from .models import DAE, DVAE, AE, VAE, ClusterBooster
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
@@ -78,7 +78,15 @@ def run_mymethod(args):
     tt = 0
     while 1:
         tt = tt + 1
-        power = 10
+        power = tt
+
+        # trans_matrix = adj_normalized / adj_normalized.sum(axis=0)
+        # M = trans_matrix
+        # if power > 1:
+        #     for i in range(2, power):
+        #         M += np.power(trans_matrix, i)
+        #     M /= power
+        # X = M.dot(feature)
 
         adj_normalized_k = adj_normalized ** power
         X = adj_normalized_k.dot(feature)
@@ -133,8 +141,20 @@ def run_mymethod(args):
             embeds_to_save = [e.numpy() for e in embeds]
             save_results(args, embeds_to_save)
 
+        # predict cluster assignments according to the inital autoencoder
         kmeans = KMeans(n_clusters=m).fit(embeds)
         predict_labels = kmeans.predict(embeds)
+
+        new_model = ClusterBooster(model, kmeans.cluster_centers_)
+        new_model.compile(optimizer=optimizer)
+
+        if args.model == 'ae' or args.model == 'vae':
+            new_model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+        else: #dae or dvae
+            new_model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+
+        predict_labels = new_model.predict_clusters()
+
         intraD = square_dist(predict_labels, X)
         cm = clustering_metrics(gnd, predict_labels)
         ac, nm, f1 = cm.evaluationClusterModelFromLabel()
@@ -155,6 +175,7 @@ def run_mymethod(args):
             break
 
     # plot_results(d_intra, acc_list, nmi_list, f1_list, powers, args)
+
 
 
 def plot_results(intra, acc, nmi, f1, powers, args):

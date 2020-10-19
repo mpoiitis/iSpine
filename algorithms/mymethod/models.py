@@ -284,5 +284,76 @@ class DAE(tf.keras.Model):
     def embed(self, x):
         return self.encoder(x, training=False)
 
+
+class ClusterBooster(tf.keras.Model):
+    """
+    This module utilizes the pretrained neural network alongside the cluster assignments to further optimize the model
+    Specifically its loss function contains a second part, apart from the pretrained model's loss, which is the minimization
+    of KL-Divergence between a soft-clustering assignment distribution q and the target distribution p
+    """
+    def __init__(self, base_model, centers):
+        super(ClusterBooster, self).__init__()
+
+        self.pretrained = base_model
+        self.centers = centers
+
+
+    def train_step(self, data):
+        x, y = data
+
+        with tf.GradientTape() as tape:
+            y_pred = self.pretrained(x, training=True)  # Forward pass
+            # Compute the original loss
+            if self.pretrained.name == 'dae' or self.pretrained.name == 'dvae':
+                original_loss = self.pretrained.compute_loss(x, y)
+            elif self.pretrained.name == 'vae':
+                original_loss = self.pretrained.compute_loss(x)
+
+            # add the KL-divergence loss according to cluster assignments
+            kl_loss = self.compute_loss(x)
+            loss = original_loss + kl_loss
+
+        # Compute gradients
+        gradients = tape.gradient(loss, self.trainable_variables)
+
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+        # Compute our own metrics
+        loss_tracker.update_state(loss)
+        mse_metric.update_state(x, y_pred)
+        return {"loss": loss_tracker.result(), "mse": mse_metric.result()}
+
+    def compute_loss(self, x):
+        z = self.pretrained.embed(x)
+
+        z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]]) # reshape for broadcasting
+
+        partial = tf.norm(z - self.centers, axis=2, ord='euclidean')
+        nominator = 1 / (1 + partial)
+        denominator = tf.math.reduce_sum(1/ (1 + partial))
+        self.Q = nominator / denominator
+
+
+        partial =  tf.math.pow(self.Q, 2) / tf.math.reduce_sum(self.Q, axis=1, keepdims=True)
+        nominator = partial
+        denominator = tf.math.reduce_sum(partial, axis=0)
+        P = nominator / denominator
+
+        kl = tf.keras.losses.KLDivergence()
+
+        return kl(P, self.Q)
+
+    @property
+    def metrics(self):
+
+        return [loss_tracker, mse_metric]
+
+    def predict_clusters(self):
+        clusters = tf.argmax(self.Q, axis=1)
+        return clusters
+
+
 def lrelu(x, leak=0.2, name="lrelu"):
     return tf.maximum(x, leak * x)
+
