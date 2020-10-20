@@ -104,6 +104,7 @@ def run_mymethod(args):
         # model_checkpoint_callback = ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, monitor='loss',
         #     mode='min', save_best_only=True)
 
+        # TRAIN WITHOUT CLUSTER LABELS
         print('Training model for {}-order convolution'.format(power))
         if args.model == 'ae':
             model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
@@ -145,19 +146,41 @@ def run_mymethod(args):
         kmeans = KMeans(n_clusters=m).fit(embeds)
         predict_labels = kmeans.predict(embeds)
 
-        new_model = ClusterBooster(model, kmeans.cluster_centers_)
-        new_model.compile(optimizer=optimizer)
-
-        if args.model == 'ae' or args.model == 'vae':
-            new_model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-        else: #dae or dvae
-            new_model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-
-        predict_labels = new_model.predict_clusters()
-
+        # TRAIN WITH CLUSTER LABELS ITERATIVELY
         intraD = square_dist(predict_labels, X)
         cm = clustering_metrics(gnd, predict_labels)
         ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+        iteration = 0
+        print('Power: {}'.format(power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
+              'nmi: {}'.format(nm),
+              'f1: {}'.format(f1))
+        while True:
+            # repeat cluster boosting as long as the model is getting better
+            iteration += 1
+
+            model = ClusterBooster(model, kmeans.cluster_centers_)
+            model.compile(optimizer=optimizer)
+            if args.model == 'ae' or args.model == 'vae':
+                model.fit(u, u, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            else: #dae or dvae
+                model.fit(u_distorted, u, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+
+            embeds = model.embed(u)
+
+            kmeans = KMeans(n_clusters=m).fit(embeds)
+            predict_labels = kmeans.predict(embeds)
+            new_dist = square_dist(predict_labels, X)
+
+            if new_dist > intraD:
+                break
+            else:
+                intraD = new_dist
+
+            cm = clustering_metrics(gnd, predict_labels)
+            ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+            print('Power: {}'.format(power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
+                  'nmi: {}'.format(nm),
+                  'f1: {}'.format(f1))
 
         intra_list.append(intraD)
         powers.append(power)
@@ -165,8 +188,6 @@ def run_mymethod(args):
         acc_list.append(ac)
         nmi_list.append(nm)
         f1_list.append(f1)
-        print('power: {}'.format(power), 'intra_dist: {}'.format(intraD), 'acc: {}'.format(ac), 'nmi: {}'.format(nm),
-              'f1: {}'.format(f1))
 
         if intra_list[tt] > intra_list[tt - 1] or tt > max_iter:
             print('bestpower: {}'.format(tt - 1))

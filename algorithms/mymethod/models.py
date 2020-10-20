@@ -308,6 +308,9 @@ class ClusterBooster(tf.keras.Model):
                 original_loss = self.pretrained.compute_loss(x, y)
             elif self.pretrained.name == 'vae':
                 original_loss = self.pretrained.compute_loss(x)
+            else:  # ae
+                mse = tf.keras.losses.MeanSquaredError()
+                original_loss = mse(y, y_pred)
 
             # add the KL-divergence loss according to cluster assignments
             kl_loss = self.compute_loss(x)
@@ -321,7 +324,7 @@ class ClusterBooster(tf.keras.Model):
 
         # Compute our own metrics
         loss_tracker.update_state(loss)
-        mse_metric.update_state(x, y_pred)
+        mse_metric.update_state(y, y_pred)
         return {"loss": loss_tracker.result(), "mse": mse_metric.result()}
 
     def compute_loss(self, x):
@@ -349,9 +352,13 @@ class ClusterBooster(tf.keras.Model):
 
         return [loss_tracker, mse_metric]
 
-    def predict_clusters(self):
-        clusters = tf.argmax(self.Q, axis=1)
-        return clusters
+    def embed(self, x):
+        z = self.pretrained.embed(x)
+
+        return z
+
+    def call(self, x):
+        return self.pretrained.call(x)
 
 
 def lrelu(x, leak=0.2, name="lrelu"):
