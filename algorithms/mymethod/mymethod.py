@@ -130,7 +130,7 @@ def run_mymethod(args):
             model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         # model.load_weights(checkpoint_filepath)
-        embeds = model.embed(W)
+        embeds = model.embed(feature)
 
         if args.save and power == args.save:
             # save embeddings
@@ -142,7 +142,7 @@ def run_mymethod(args):
         predict_labels = kmeans.predict(embeds)
 
         # TRAIN WITH CLUSTER LABELS ITERATIVELY
-        intraD = square_dist(predict_labels, X)
+        intraD = square_dist(predict_labels, feature)
         cm = clustering_metrics(gnd, predict_labels)
         ac, nm, f1 = cm.evaluationClusterModelFromLabel()
         iteration = 0
@@ -160,11 +160,11 @@ def run_mymethod(args):
             else: #dae or dvae
                 model.fit(distorted, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
 
-            embeds = model.embed(W)
+            embeds = model.embed(feature)
 
             kmeans = KMeans(n_clusters=m).fit(embeds)
             predict_labels = kmeans.predict(embeds)
-            new_dist = square_dist(predict_labels, W)
+            new_dist = square_dist(predict_labels, feature)
 
             if new_dist > intraD:
                 break
