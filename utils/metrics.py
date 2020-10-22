@@ -107,18 +107,15 @@ def square_dist(prelabel, feature):
         feature = feature.todense()
     feature = np.array(feature)
 
-    onehot = to_onehot(prelabel)
-
+    onehot = to_onehot(prelabel) # num_labels x nodes. For each label (row) which nodes (columns) have the specific label (value 1)
     m, n = onehot.shape
     count = onehot.sum(1).reshape(m, 1)
-    count[count==0] = 1
+    count[count==0] = 1 # to avoid division by zero
 
-    mean = onehot.dot(feature)/count
-    a2 = (onehot.dot(feature*feature)/count).sum(1)
+    mean = onehot.dot(feature)/(count*(count -1 ))
+    a2 = (onehot.dot(feature*feature)/(count*(count -1 ))).sum(1)
     pdist2 = np.array(a2 + a2.T - 2*mean.dot(mean.T))
 
     intra_dist = pdist2.trace()
-    inter_dist = pdist2.sum() - intra_dist
     intra_dist /= m
-    inter_dist /= m * (m - 1)
     return intra_dist

@@ -61,24 +61,19 @@ def run_mymethod(args):
     num_nodes = adj.shape[0]
     m = len(np.unique(gnd))
     adj = sp.coo_matrix(adj)
-    intra_list = []
-    intra_list.append(10000)
 
     acc_list = []
     nmi_list = []
     f1_list = []
     powers = []
     d_intra = []
-    max_iter = args.max_iter
 
     t = time.time()
     adj_normalized = preprocess_adj(adj)
     adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
 
-    tt = 0
-    while 1:
-        tt = tt + 1
-        power = tt
+
+    for power in range(1, 8):
 
         # trans_matrix = adj_normalized / adj_normalized.sum(axis=0)
         # M = trans_matrix
@@ -92,9 +87,7 @@ def run_mymethod(args):
         X = adj_normalized_k.dot(feature)
         # K = X.dot(X.transpose())
         # W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
-
-        u, s, v = sp.linalg.svds(X, k=m, which='LM')  # matrix u of SVD is equal to calculating the kernel X*X_T
-
+        W = X
         # feed k-order convolution to autoencoder
 
         es = EarlyStopping(monitor='loss', patience=args.early_stopping)
@@ -107,35 +100,35 @@ def run_mymethod(args):
         # TRAIN WITHOUT CLUSTER LABELS
         print('Training model for {}-order convolution'.format(power))
         if args.model == 'ae':
-            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
             model.compile(optimizer=optimizer, loss=MeanSquaredError())
-            model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            model.fit(W, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'vae':
-            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1], dropout=args.dropout)
+            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
             model.compile(optimizer=optimizer)
-            model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            model.fit(W, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'dvae':
             # distort input features for denoising auto encoder
-            u_distorted = salt_and_pepper(u, 0.2)
+            distorted = salt_and_pepper(W, 0.2)
 
-            model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1],
+            model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
                         dropout=args.dropout)
             model.compile(optimizer=optimizer)
-            model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'dae':
             # distort input features for denoising auto encoder
-            u_distorted = salt_and_pepper(u, 0.2)
+            distorted = salt_and_pepper(W, 0.2)
 
-            model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=u.shape[1],
+            model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
                         dropout=args.dropout)
             model.compile(optimizer=optimizer)
-            model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         # model.load_weights(checkpoint_filepath)
-        embeds = model.embed(u)
+        embeds = model.embed(W)
 
         if args.save and power == args.save:
             # save embeddings
@@ -161,15 +154,15 @@ def run_mymethod(args):
             model = ClusterBooster(model, kmeans.cluster_centers_)
             model.compile(optimizer=optimizer)
             if args.model == 'ae' or args.model == 'vae':
-                model.fit(u, u, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+                model.fit(W, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             else: #dae or dvae
-                model.fit(u_distorted, u, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+                model.fit(distorted, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
 
-            embeds = model.embed(u)
+            embeds = model.embed(W)
 
             kmeans = KMeans(n_clusters=m).fit(embeds)
             predict_labels = kmeans.predict(embeds)
-            new_dist = square_dist(predict_labels, X)
+            new_dist = square_dist(predict_labels, W)
 
             if new_dist > intraD:
                 break
@@ -182,18 +175,14 @@ def run_mymethod(args):
                   'nmi: {}'.format(nm),
                   'f1: {}'.format(f1))
 
-        intra_list.append(intraD)
         powers.append(power)
-        d_intra.append(intra_list[tt] - intra_list[tt - 1])
         acc_list.append(ac)
         nmi_list.append(nm)
         f1_list.append(f1)
 
-        if intra_list[tt] > intra_list[tt - 1] or tt > max_iter:
-            print('bestpower: {}'.format(tt - 1))
-            t = time.time() - t
-            print('time:', t)
-            break
+    best_index = np.argmax(f1_list)
+    best_power = powers[best_index]
+    print('Best power: {}'.format(best_power))
 
     # plot_results(d_intra, acc_list, nmi_list, f1_list, powers, args)
 
