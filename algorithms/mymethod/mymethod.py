@@ -49,6 +49,7 @@ def run_mymethod(args):
     dataset = args.input
     data = sio.loadmat('data/agc_data/{}.mat'.format(dataset))
     feature = data['fea']
+    feature = feature.astype(np.float32)
     if sp.issparse(feature):
         feature = feature.todense()
 
@@ -98,20 +99,21 @@ def run_mymethod(args):
         #     mode='min', save_best_only=True)
 
         # TRAIN WITHOUT CLUSTER LABELS
+        # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
         print('Training model for {}-order convolution'.format(power))
         if args.model == 'ae':
             model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
             model.compile(optimizer=optimizer, loss=MeanSquaredError())
-            model.fit(W, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'vae':
             model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
             model.compile(optimizer=optimizer)
-            model.fit(W, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'dvae':
             # distort input features for denoising auto encoder
-            distorted = salt_and_pepper(W, 0.2)
+            distorted = salt_and_pepper(feature, 0.2)
 
             model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
                         dropout=args.dropout)
@@ -120,7 +122,7 @@ def run_mymethod(args):
             # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
         elif args.model == 'dae':
             # distort input features for denoising auto encoder
-            distorted = salt_and_pepper(W, 0.2)
+            distorted = salt_and_pepper(feature, 0.2)
 
             model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
                         dropout=args.dropout)
@@ -154,7 +156,7 @@ def run_mymethod(args):
             model = ClusterBooster(model, kmeans.cluster_centers_)
             model.compile(optimizer=optimizer)
             if args.model == 'ae' or args.model == 'vae':
-                model.fit(W, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+                model.fit(feature, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
             else: #dae or dvae
                 model.fit(distorted, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
 

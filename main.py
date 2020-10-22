@@ -87,7 +87,7 @@ def parse_args():
     mymethod_parser.add_argument("--dimension", default=100, type=int, help="Embedding dimension. Default is 100.")
     mymethod_parser.add_argument('--hidden', default=200, type=int, help="Hidden layer dimension. Default is 200.")
     mymethod_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
-    mymethod_parser.add_argument("--learning-rate", default=0.00001, type=float, help="Initial learning rate. Default is 0.00001.")
+    mymethod_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.00001.")
     mymethod_parser.add_argument("--batch-size", default=100, type=int, help="Size of the batch used for training. Default is 100.")
     mymethod_parser.add_argument("--epochs", default=500, type=int, help="Number of epochs. Default is 500.")
     mymethod_parser.add_argument("--c-epochs", default=500, type=int, help="Number of epochs for Cluster Booster. Default is 500.")
