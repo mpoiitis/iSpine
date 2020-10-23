@@ -63,159 +63,202 @@ def run_mymethod(args):
     m = len(np.unique(gnd))
     adj = sp.coo_matrix(adj)
 
-    acc_list = []
-    nmi_list = []
-    f1_list = []
-    powers = []
-    d_intra = []
-
-    t = time.time()
     adj_normalized = preprocess_adj(adj)
     adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
 
+    exp_accs = []
+    exp_nmis = []
+    exp_f1s = []
+    # repeat the experiment 10 times to check the stableness of the model
+    for i in range(10):
+        acc_list = []
+        nmi_list = []
+        f1_list = []
+        powers = []
+        for power in range(1, 8):
 
-    for power in range(1, 8):
+            # trans_matrix = adj_normalized / adj_normalized.sum(axis=0)
+            # M = trans_matrix
+            # if power > 1:
+            #     for i in range(2, power):
+            #         M += np.power(trans_matrix, i)
+            #     M /= power
+            # X = M.dot(feature)
 
-        # trans_matrix = adj_normalized / adj_normalized.sum(axis=0)
-        # M = trans_matrix
-        # if power > 1:
-        #     for i in range(2, power):
-        #         M += np.power(trans_matrix, i)
-        #     M /= power
-        # X = M.dot(feature)
+            adj_normalized_k = adj_normalized ** power
+            X = adj_normalized_k.dot(feature)
+            # K = X.dot(X.transpose())
+            # W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
+            W = X
+            # feed k-order convolution to autoencoder
 
-        adj_normalized_k = adj_normalized ** power
-        X = adj_normalized_k.dot(feature)
-        # K = X.dot(X.transpose())
-        # W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
-        W = X
-        # feed k-order convolution to autoencoder
+            es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+            optimizer = Adam(lr=args.learning_rate)
+            # # save weights
+            # checkpoint_filepath = 'output/tmp/checkpoint'
+            # model_checkpoint_callback = ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, monitor='loss',
+            #     mode='min', save_best_only=True)
 
-        es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-        optimizer = Adam(lr=args.learning_rate)
-        # # save weights
-        # checkpoint_filepath = 'output/tmp/checkpoint'
-        # model_checkpoint_callback = ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, monitor='loss',
-        #     mode='min', save_best_only=True)
+            # TRAIN WITHOUT CLUSTER LABELS
+            # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
+            print('Training model for {}-order convolution'.format(power))
+            if args.model == 'ae':
+                model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
+                model.compile(optimizer=optimizer, loss=MeanSquaredError())
+                model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+                # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
+            elif args.model == 'vae':
+                model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
+                model.compile(optimizer=optimizer)
+                model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+                # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
+            elif args.model == 'dvae':
+                # distort input features for denoising auto encoder
+                distorted = salt_and_pepper(feature, 0.2)
 
-        # TRAIN WITHOUT CLUSTER LABELS
-        # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
-        print('Training model for {}-order convolution'.format(power))
-        if args.model == 'ae':
-            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
-            model.compile(optimizer=optimizer, loss=MeanSquaredError())
-            model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-        elif args.model == 'vae':
-            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
-            model.compile(optimizer=optimizer)
-            model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-        elif args.model == 'dvae':
-            # distort input features for denoising auto encoder
-            distorted = salt_and_pepper(feature, 0.2)
+                model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
+                            dropout=args.dropout)
+                model.compile(optimizer=optimizer)
+                model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+                # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
+            elif args.model == 'dae':
+                # distort input features for denoising auto encoder
+                distorted = salt_and_pepper(feature, 0.2)
 
-            model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
-                        dropout=args.dropout)
-            model.compile(optimizer=optimizer)
-            model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-        elif args.model == 'dae':
-            # distort input features for denoising auto encoder
-            distorted = salt_and_pepper(feature, 0.2)
-
-            model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
-                        dropout=args.dropout)
-            model.compile(optimizer=optimizer)
-            model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-        # model.load_weights(checkpoint_filepath)
-        embeds = model.embed(feature)
-
-        if args.save and power == args.save:
-            # save embeddings
-            embeds_to_save = [e.numpy() for e in embeds]
-            save_results(args, embeds_to_save)
-
-        # predict cluster assignments according to the inital autoencoder
-        kmeans = KMeans(n_clusters=m).fit(embeds)
-        predict_labels = kmeans.predict(embeds)
-
-        # TRAIN WITH CLUSTER LABELS ITERATIVELY
-        intraD = square_dist(predict_labels, feature)
-        cm = clustering_metrics(gnd, predict_labels)
-        ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-        iteration = 0
-        print('Power: {}'.format(power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
-              'nmi: {}'.format(nm),
-              'f1: {}'.format(f1))
-        while True:
-            # repeat cluster boosting as long as the model is getting better
-            iteration += 1
-
-            model = ClusterBooster(model, kmeans.cluster_centers_)
-            model.compile(optimizer=optimizer)
-            if args.model == 'ae' or args.model == 'vae':
-                model.fit(feature, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            else: #dae or dvae
-                model.fit(distorted, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-
+                model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
+                            dropout=args.dropout)
+                model.compile(optimizer=optimizer)
+                model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+                # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
+            # model.load_weights(checkpoint_filepath)
             embeds = model.embed(feature)
 
+            if args.save and power == args.save:
+                # save embeddings
+                embeds_to_save = [e.numpy() for e in embeds]
+                save_results(args, embeds_to_save)
+
+            # predict cluster assignments according to the inital autoencoder
             kmeans = KMeans(n_clusters=m).fit(embeds)
             predict_labels = kmeans.predict(embeds)
-            new_dist = square_dist(predict_labels, feature)
 
-            if new_dist > intraD:
-                break
-            else:
-                intraD = new_dist
-
+            intraD = square_dist(predict_labels, feature)
             cm = clustering_metrics(gnd, predict_labels)
             ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-            print('Power: {}'.format(power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
+            iteration = 0
+            print('Power: {}'.format(power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
                   'nmi: {}'.format(nm),
                   'f1: {}'.format(f1))
 
-        powers.append(power)
-        acc_list.append(ac)
-        nmi_list.append(nm)
-        f1_list.append(f1)
+            # # TRAIN WITH CLUSTER LABELS ITERATIVELY
+            # while True:
+            #     # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
+            #     iteration += 1
+            #
+            #     model = ClusterBooster(model, kmeans.cluster_centers_)
+            #     model.compile(optimizer=optimizer)
+            #     if args.model == 'ae' or args.model == 'vae':
+            #         model.fit(feature, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            #     else: #dae or dvae
+            #         model.fit(distorted, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            #
+            #     embeds = model.embed(feature)
+            #
+            #     kmeans = KMeans(n_clusters=m).fit(embeds)
+            #     predict_labels = kmeans.predict(embeds)
+            #     new_dist = square_dist(predict_labels, feature)
+            #
+            #     if new_dist > intraD:
+            #         break
+            #     else:
+            #         intraD = new_dist
+            #
+            #     cm = clustering_metrics(gnd, predict_labels)
+            #     ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+            #     print('Power: {}'.format(power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
+            #           'nmi: {}'.format(nm),
+            #           'f1: {}'.format(f1))
 
-    best_index = np.argmax(f1_list)
-    best_power = powers[best_index]
-    print('Best power: {}'.format(best_power))
-
-    # plot_results(d_intra, acc_list, nmi_list, f1_list, powers, args)
-
+            powers.append(power)
+            acc_list.append(ac)
+            nmi_list.append(nm)
+            f1_list.append(f1)
 
 
-def plot_results(intra, acc, nmi, f1, powers, args):
+        best_index = np.argmax(f1_list)
+        best_power = powers[best_index]
+        print('Best power: {}'.format(best_power))
+
+        exp_accs.append(acc_list)
+        exp_nmis.append(nmi_list)
+        exp_f1s.append(f1_list)
+
+    plot_results(powers, exp_accs, exp_nmis, exp_f1s, args)
+
+
+
+def plot_results(powers, exp_accs, exp_nmis, exp_f1s, args):
 
     filepath = 'figures/{}/{}'.format(args.method, args.model)
     if not os.path.exists(filepath):
         os.makedirs(filepath)
 
-    intra[0] = - 7
+    if args.input == 'cora':
+        agc_acc = len(powers) * [0.6892]
+        agc_f1 = len(powers) * [0.6561]
+        agc_nmi = len(powers) * [0.5368]
+    elif args.input == 'citeseer':
+        agc_acc = len(powers) * [0.6700]
+        agc_f1 = len(powers) * [0.6248]
+        agc_nmi = len(powers) * [0.4113]
+    elif args.input == 'pubmed':
+        agc_acc = len(powers) * [0.6978]
+        agc_f1 = len(powers) * [0.6872]
+        agc_nmi = len(powers) * [0.3159]
+    else:
+        return
 
-    powers = np.array(powers)
-    acc = np.array(acc)
-    f1 = np.array(f1)
-    nmi = np.array(nmi)
-    intra = np.array(intra)
+    exp_accs = np.array(exp_accs)
+    exp_nmis = np.array(exp_nmis)
+    exp_f1s = np.array(exp_f1s)
 
-    fig, axs = plt.subplots(2, sharex=True)
-    axs[0].plot(powers, acc, color='purple', label='Acc')
-    axs[0].plot(powers, f1, color='yellow', label='F1')
-    axs[0].plot(powers, nmi, color='green', label='NMI')
-    axs[0].set_xlabel('k')
-    axs[0].set_ylabel('Score')
-    axs[1].plot(powers, intra, color='blue', label='D_Intra')
-    axs[1].set_xlabel('k')
-    axs[1].set_ylabel('Score')
-    fig.suptitle('learning rate: {}, epochs: {}, dimension: {}, dropout: {}'.format(args.learning_rate, args.epochs, args.dimension, args.dropout))
-    axs[0].legend()
-    axs[1].legend()
-    filepath = filepath + '/' + str(args.model) + '_' + str(args.epochs) + '_' + str(args.dimension) + '_' + str(args.learning_rate) + '_' + str(args.dropout) + '.png'
+    # mean across the columns, meaning for each k
+    acc_mean = np.mean(exp_accs, axis=0)
+    nmi_mean = np.mean(exp_nmis, axis=0)
+    f1_mean = np.mean(exp_f1s, axis=0)
+
+    #std across the columns, meaning for each k
+    acc_std = np.std(exp_accs, axis=0)
+    nmi_std = np.std(exp_nmis, axis=0)
+    f1_std = np.std(exp_f1s, axis=0)
+
+    for i in range(len(powers)):
+        print('Power: {}    acc:{} +- {}    nmi:{} +- {}   f1:{} +- {}'.format(powers[i], acc_mean[i], acc_std[i], nmi_mean[i], nmi_std[i], f1_mean[i], f1_std[i]))
+
+    fig, ax = plt.subplots(3, sharex=True)
+    ax[0].plot(powers, acc_mean, color='purple', label='Acc')
+    ax[0].fill_between(powers, acc_mean + acc_std, acc_mean - acc_std, facecolor='purple', alpha=0.2)
+    ax[0].plot(powers, agc_acc, color='black', label='AGC')
+    ax[0].legend()
+
+    ax[1].plot(powers, f1_mean, color='yellow', label='F1')
+    ax[1].fill_between(powers, f1_mean + f1_std, f1_mean - f1_std, facecolor='yellow', alpha=0.2)
+    ax[1].plot(powers, agc_f1, color='black', label='AGC')
+    ax[1].legend()
+
+    ax[2].plot(powers, nmi_mean, color='green', label='NMI')
+    ax[2].fill_between(powers, nmi_mean + nmi_std, nmi_mean - nmi_std, facecolor='green', alpha=0.2)
+    ax[2].plot(powers, agc_nmi, color='black', label='AGC')
+    ax[2].legend()
+
+    ax[0].set_xlabel('k')
+    ax[1].set_xlabel('k')
+    ax[2].set_xlabel('k')
+    ax[0].set_ylabel('Score')
+    ax[1].set_ylabel('Score')
+    ax[2].set_ylabel('Score')
+    plt.suptitle('dataset:{}, learning rate: {}, epochs: {}, c-epochs: {}, dimension: {}, dropout: {}'.format(args.input, args.learning_rate, args.epochs, args.c_epochs, args.dimension, args.dropout))
+
+    filepath = filepath + '/' + str(args.input) + '_' + str(args.model) + '_' + str(args.epochs) + '_' + str(args.c_epochs) + '_' + str(args.dimension) + '_' + str(args.learning_rate) + '_' + str(args.dropout) + '.png'
     plt.savefig(filepath, format='png')
     plt.show()
