@@ -107,6 +107,12 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    # from algorithms.mymethod.mymethod import plot_results
+
+    # config = {'Dataset': 'cora', 'Model': 'ae', 'Dimension': 100, 'Dropout': 0.1,
+    #           'Epochs': 500, 'Batch Size': 100, 'Power': 7, 'Cluster Epochs': 0, 'Learning Rate': 0.001}
+    # plot_results(config, 'Hidden')
+
     args = parse_args()
     if args.method == 'gcn':
         run_gcn(args)
@@ -125,5 +131,4 @@ if __name__ == "__main__":
     else:
         pass
 
-    # auto_kmeans(args)
 

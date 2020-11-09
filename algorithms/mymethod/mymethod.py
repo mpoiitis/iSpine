@@ -2,7 +2,9 @@ import scipy.io as sio
 import csv
 import os
 import numpy as np
+import pandas as pd
 import scipy.sparse as sp
+from textwrap import wrap
 from sklearn.cluster import KMeans
 from utils.metrics import clustering_metrics, square_dist
 from .models import DAE, DVAE, AE, VAE, ClusterBooster
@@ -172,68 +174,81 @@ def run_mymethod(args):
 
 
 
-def plot_results(powers, exp_accs, exp_nmis, exp_f1s, args):
+def plot_results(config, pivot='Learning Rate'):
 
-    filepath = 'figures/{}/{}'.format(args.method, args.model)
+    filepath = 'figures/mymethod/{}'.format(config['Model'])
     if not os.path.exists(filepath):
         os.makedirs(filepath)
 
-    if args.input == 'cora':
-        agc_acc = len(powers) * [0.6892]
-        agc_f1 = len(powers) * [0.6561]
-        agc_nmi = len(powers) * [0.5368]
-    elif args.input == 'citeseer':
-        agc_acc = len(powers) * [0.6700]
-        agc_f1 = len(powers) * [0.6248]
-        agc_nmi = len(powers) * [0.4113]
-    elif args.input == 'pubmed':
-        agc_acc = len(powers) * [0.6978]
-        agc_f1 = len(powers) * [0.6872]
-        agc_nmi = len(powers) * [0.3159]
+    data = pd.read_csv('output/mymethod/results.csv')
+    unique_xaxis = np.unique(data[pivot])
+
+    if config['Dataset'] == 'cora':
+        agc_acc = len(unique_xaxis) * [0.6892]
+        agc_f1 = len(unique_xaxis) * [0.6561]
+        agc_nmi = len(unique_xaxis) * [0.5368]
+    elif config['Dataset'] == 'citeseer':
+        agc_acc = len(unique_xaxis) * [0.6700]
+        agc_f1 = len(unique_xaxis) * [0.6248]
+        agc_nmi = len(unique_xaxis) * [0.4113]
+    elif config['Dataset'] == 'pubmed':
+        agc_acc = len(unique_xaxis) * [0.6978]
+        agc_f1 = len(unique_xaxis) * [0.6872]
+        agc_nmi = len(unique_xaxis) * [0.3159]
     else:
         return
 
-    exp_accs = np.array(exp_accs)
-    exp_nmis = np.array(exp_nmis)
-    exp_f1s = np.array(exp_f1s)
+    for k, v in config.items():
+        data = data.loc[data[k] == v]
 
-    # mean across the columns, meaning for each k
-    acc_mean = np.mean(exp_accs, axis=0)
-    nmi_mean = np.mean(exp_nmis, axis=0)
-    f1_mean = np.mean(exp_f1s, axis=0)
+    data = data.sort_values(pivot)
 
-    #std across the columns, meaning for each k
-    acc_std = np.std(exp_accs, axis=0)
-    nmi_std = np.std(exp_nmis, axis=0)
-    f1_std = np.std(exp_f1s, axis=0)
+    acc_means = data.groupby(pivot, as_index=False)['Accuracy'].mean()
+    nmi_means = data.groupby(pivot, as_index=False)['NMI'].mean()
+    f1s_means = data.groupby(pivot, as_index=False)['F1'].mean()
 
-    for i in range(len(powers)):
-        print('Power: {}    acc:{} +- {}    nmi:{} +- {}   f1:{} +- {}'.format(powers[i], acc_mean[i], acc_std[i], nmi_mean[i], nmi_std[i], f1_mean[i], f1_std[i]))
+    acc_stds = data.groupby(pivot, as_index=False)['Accuracy'].std()
+    nmi_stds = data.groupby(pivot, as_index=False)['NMI'].std()
+    f1_stds = data.groupby(pivot, as_index=False)['F1'].std()
 
     fig, ax = plt.subplots(3, sharex=True)
-    ax[0].plot(powers, acc_mean, color='purple', label='Acc')
-    ax[0].fill_between(powers, acc_mean + acc_std, acc_mean - acc_std, facecolor='purple', alpha=0.2)
-    ax[0].plot(powers, agc_acc, color='black', label='AGC')
+    ax[0].plot(acc_means[pivot], acc_means['Accuracy'], color='purple', label='Acc', marker='x')
+    ax[0].fill_between(acc_means[pivot], acc_means['Accuracy'] - acc_stds['Accuracy'], acc_means['Accuracy'] + acc_stds['Accuracy'], color='purple', alpha=0.2)
+    ax[0].plot(acc_means[pivot], agc_acc, color='black', label='AGC')
     ax[0].legend()
 
-    ax[1].plot(powers, f1_mean, color='yellow', label='F1')
-    ax[1].fill_between(powers, f1_mean + f1_std, f1_mean - f1_std, facecolor='yellow', alpha=0.2)
-    ax[1].plot(powers, agc_f1, color='black', label='AGC')
+    ax[1].plot(f1s_means[pivot], f1s_means['F1'], color='yellow', label='F1', marker='x')
+    ax[1].fill_between(f1s_means[pivot], f1s_means['F1'] - f1_stds['F1'], f1s_means['F1'] + f1_stds['F1'], color='yellow', alpha=0.2)
+    ax[1].plot(f1s_means[pivot], agc_f1, color='black', label='AGC')
     ax[1].legend()
 
-    ax[2].plot(powers, nmi_mean, color='green', label='NMI')
-    ax[2].fill_between(powers, nmi_mean + nmi_std, nmi_mean - nmi_std, facecolor='green', alpha=0.2)
-    ax[2].plot(powers, agc_nmi, color='black', label='AGC')
+    ax[2].plot(nmi_means[pivot], nmi_means['NMI'], color='green', label='NMI', marker='x')
+    ax[2].fill_between(nmi_means[pivot], nmi_means['NMI'] - nmi_stds['NMI'], nmi_means['NMI'] + nmi_stds['NMI'], color='green', alpha=0.2)
+    ax[2].plot(nmi_means[pivot], agc_nmi, color='black', label='AGC')
     ax[2].legend()
 
-    ax[0].set_xlabel('k')
-    ax[1].set_xlabel('k')
-    ax[2].set_xlabel('k')
+    ax[0].set_xlabel(pivot)
+    ax[1].set_xlabel(pivot)
+    ax[2].set_xlabel(pivot)
     ax[0].set_ylabel('Score')
     ax[1].set_ylabel('Score')
     ax[2].set_ylabel('Score')
-    plt.suptitle('dataset:{}, learning rate: {}, epochs: {}, c-epochs: {}, dimension: {}, dropout: {}'.format(args.input, args.learning_rate, args.epochs, args.c_epochs, args.dimension, args.dropout))
 
-    filepath = filepath + '/' + str(args.input) + '_' + str(args.model) + '_' + str(args.epochs) + '_' + str(args.c_epochs) + '_' + str(args.dimension) + '_' + str(args.learning_rate) + '_' + str(args.dropout) + '.png'
+    num_items = len(config.keys())
+    title = ''
+    for i, (k, v) in enumerate(config.items()):
+        if i == num_items - 1:
+            title += k + ':' + str(v)
+        else:
+            title += k + ':' + str(v) + ', '
+    plt.suptitle("\n".join(wrap(title, 75)))
+
+    filepath = filepath + '/'
+    for i, v in enumerate(config.values()):
+        if i == num_items - 1:
+            filepath += str(v)
+        else:
+            filepath += str(v) + '_'
+    filepath += '.png'
     plt.savefig(filepath, format='png')
     plt.show()
