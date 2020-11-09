@@ -1,5 +1,5 @@
 import scipy.io as sio
-import time
+import csv
 import os
 import numpy as np
 import scipy.sparse as sp
@@ -42,10 +42,10 @@ def preprocess_adj(adj, type='sym', loop=True):
     return adj_normalized
 
 
-def run_mymethod(args):
+def mymethod(args):
+    if not os.path.exists('output/mymethod'):
+        os.makedirs('output/mymethod')
 
-    if not os.path.exists('output/tmp'):
-        os.makedirs('output/tmp')
     dataset = args.input
     data = sio.loadmat('data/agc_data/{}.mat'.format(dataset))
     feature = data['fea']
@@ -66,134 +66,109 @@ def run_mymethod(args):
     adj_normalized = preprocess_adj(adj)
     adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
 
-    exp_accs = []
-    exp_nmis = []
-    exp_f1s = []
-    # repeat the experiment 10 times to check the stableness of the model
-    for i in range(10):
-        acc_list = []
-        nmi_list = []
-        f1_list = []
-        powers = []
-        for power in range(1, 8):
+    adj_normalized_k = adj_normalized ** args.power
+    X = adj_normalized_k.dot(feature)
 
-            # trans_matrix = adj_normalized / adj_normalized.sum(axis=0)
-            # M = trans_matrix
-            # if power > 1:
-            #     for i in range(2, power):
-            #         M += np.power(trans_matrix, i)
-            #     M /= power
-            # X = M.dot(feature)
+    # feed k-order convolution to autoencoder
 
-            adj_normalized_k = adj_normalized ** power
-            X = adj_normalized_k.dot(feature)
-            # K = X.dot(X.transpose())
-            # W = 1/2 * (np.absolute(K) + np.absolute(K.transpose()))
-            W = X
-            # feed k-order convolution to autoencoder
+    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+    optimizer = Adam(lr=args.learning_rate)
 
-            es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-            optimizer = Adam(lr=args.learning_rate)
-            # # save weights
-            # checkpoint_filepath = 'output/tmp/checkpoint'
-            # model_checkpoint_callback = ModelCheckpoint(filepath=checkpoint_filepath, save_weights_only=True, monitor='loss',
-            #     mode='min', save_best_only=True)
+    # TRAIN WITHOUT CLUSTER LABELS
+    # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
+    print('Training model for {}-order convolution'.format(args.power))
+    if args.model == 'ae':
+        model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=optimizer, loss=MeanSquaredError())
+        model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    elif args.model == 'vae':
+        model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    elif args.model == 'dvae':
+        # distort input features for denoising auto encoder
+        distorted = salt_and_pepper(feature, 0.2)
 
-            # TRAIN WITHOUT CLUSTER LABELS
-            # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
-            print('Training model for {}-order convolution'.format(power))
-            if args.model == 'ae':
-                model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
-                model.compile(optimizer=optimizer, loss=MeanSquaredError())
-                model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-                # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-            elif args.model == 'vae':
-                model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1], dropout=args.dropout)
-                model.compile(optimizer=optimizer)
-                model.fit(feature, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-                # model.fit(u, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-            elif args.model == 'dvae':
-                # distort input features for denoising auto encoder
-                distorted = salt_and_pepper(feature, 0.2)
+        model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                    dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    elif args.model == 'dae':
+        # distort input features for denoising auto encoder
+        distorted = salt_and_pepper(feature, 0.2)
 
-                model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
-                            dropout=args.dropout)
-                model.compile(optimizer=optimizer)
-                model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-                # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-            elif args.model == 'dae':
-                # distort input features for denoising auto encoder
-                distorted = salt_and_pepper(feature, 0.2)
+        model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                    dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
 
-                model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=W.shape[1],
-                            dropout=args.dropout)
-                model.compile(optimizer=optimizer)
-                model.fit(distorted, W, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-                # model.fit(u_distorted, u, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, model_checkpoint_callback], verbose=0)
-            # model.load_weights(checkpoint_filepath)
+    embeds = model.embed(feature)
+
+    # predict cluster assignments according to the inital autoencoder
+    kmeans = KMeans(n_clusters=m).fit(embeds)
+    predict_labels = kmeans.predict(embeds)
+
+    intraD = square_dist(predict_labels, feature)
+    cm = clustering_metrics(gnd, predict_labels)
+    ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+    iteration = 0
+    print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
+          'nmi: {}'.format(nm),
+          'f1: {}'.format(f1))
+
+    # TRAIN WITH CLUSTER LABELS ITERATIVELY
+    if args.c_epochs != 0:
+        while True:
+            # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
+            iteration += 1
+
+            model = ClusterBooster(model, kmeans.cluster_centers_)
+            model.compile(optimizer=optimizer)
+            if args.model == 'ae' or args.model == 'vae':
+                model.fit(feature, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            else: #dae or dvae
+                model.fit(distorted, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+
             embeds = model.embed(feature)
 
-            if args.save and power == args.save:
-                # save embeddings
-                embeds_to_save = [e.numpy() for e in embeds]
-                save_results(args, embeds_to_save)
-
-            # predict cluster assignments according to the inital autoencoder
             kmeans = KMeans(n_clusters=m).fit(embeds)
             predict_labels = kmeans.predict(embeds)
+            new_dist = square_dist(predict_labels, feature)
 
-            intraD = square_dist(predict_labels, feature)
+            if new_dist > intraD:
+                break
+            else:
+                intraD = new_dist
+
             cm = clustering_metrics(gnd, predict_labels)
             ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-            iteration = 0
-            print('Power: {}'.format(power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
+            print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
                   'nmi: {}'.format(nm),
                   'f1: {}'.format(f1))
 
-            # # TRAIN WITH CLUSTER LABELS ITERATIVELY
-            # while True:
-            #     # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
-            #     iteration += 1
-            #
-            #     model = ClusterBooster(model, kmeans.cluster_centers_)
-            #     model.compile(optimizer=optimizer)
-            #     if args.model == 'ae' or args.model == 'vae':
-            #         model.fit(feature, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            #     else: #dae or dvae
-            #         model.fit(distorted, W, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            #
-            #     embeds = model.embed(feature)
-            #
-            #     kmeans = KMeans(n_clusters=m).fit(embeds)
-            #     predict_labels = kmeans.predict(embeds)
-            #     new_dist = square_dist(predict_labels, feature)
-            #
-            #     if new_dist > intraD:
-            #         break
-            #     else:
-            #         intraD = new_dist
-            #
-            #     cm = clustering_metrics(gnd, predict_labels)
-            #     ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-            #     print('Power: {}'.format(power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
-            #           'nmi: {}'.format(nm),
-            #           'f1: {}'.format(f1))
+    file_exists = os.path.isfile('output/mymethod/results.csv')
+    with open('output/mymethod/results.csv', 'a') as f:
+        columns = ['Dataset', 'Model', 'Dimension', 'Hidden', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
+                   'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'Intra Distance']
+        writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
 
-            powers.append(power)
-            acc_list.append(ac)
-            nmi_list.append(nm)
-            f1_list.append(f1)
+        if not file_exists:
+            writer.writeheader()  # file doesn't exist yet, write a header
+        writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimension': args.dimension, 'Hidden': args.hidden,
+                         'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
+                         'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
+                         'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'Intra Distance': intraD})
+
+    if args.save:
+        # save embeddings
+        embeds = model.embed(feature)
+        embeds_to_save = [e.numpy() for e in embeds]
+        save_results(args, embeds_to_save)
 
 
-        best_index = np.argmax(f1_list)
-        best_power = powers[best_index]
-        print('Best power: {}'.format(best_power))
-
-        exp_accs.append(acc_list)
-        exp_nmis.append(nmi_list)
-        exp_f1s.append(f1_list)
-
-    plot_results(powers, exp_accs, exp_nmis, exp_f1s, args)
+def run_mymethod(args):
+    for _ in range(args.repeats):
+        mymethod(args)
 
 
 
