@@ -107,11 +107,11 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    # from algorithms.mymethod.mymethod import plot_results
+    from algorithms.mymethod.mymethod import plot_results
 
-    # config = {'Dataset': 'cora', 'Model': 'ae', 'Dimension': 100, 'Dropout': 0.1,
-    #           'Epochs': 500, 'Batch Size': 100, 'Power': 7, 'Cluster Epochs': 0, 'Learning Rate': 0.001}
-    # plot_results(config, 'Hidden')
+    # config = {'Dataset': 'citeseer', 'Model': 'ae', 'Dimension': 100, 'Dropout': 0.2,
+    #           'Epochs': 500, 'Batch Size': 100, 'Learning Rate': 0.001, 'Cluster Epochs': 0, 'Hidden': 200}
+    # plot_results(config, 'Power')
 
     args = parse_args()
     if args.method == 'gcn':

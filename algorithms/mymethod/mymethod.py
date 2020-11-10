@@ -181,6 +181,11 @@ def plot_results(config, pivot='Learning Rate'):
         os.makedirs(filepath)
 
     data = pd.read_csv('output/mymethod/results.csv')
+    for k, v in config.items():
+        data = data.loc[data[k] == v]
+
+    data = data.sort_values(pivot)
+
     unique_xaxis = np.unique(data[pivot])
 
     if config['Dataset'] == 'cora':
@@ -197,11 +202,6 @@ def plot_results(config, pivot='Learning Rate'):
         agc_nmi = len(unique_xaxis) * [0.3159]
     else:
         return
-
-    for k, v in config.items():
-        data = data.loc[data[k] == v]
-
-    data = data.sort_values(pivot)
 
     acc_means = data.groupby(pivot, as_index=False)['Accuracy'].mean()
     nmi_means = data.groupby(pivot, as_index=False)['NMI'].mean()
