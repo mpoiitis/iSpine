@@ -110,57 +110,67 @@ def mymethod(args):
     kmeans = KMeans(n_clusters=m).fit(embeds)
     predict_labels = kmeans.predict(embeds)
 
-    intraD = square_dist(predict_labels, feature)
+    metric = square_dist(predict_labels, feature)
     cm = clustering_metrics(gnd, predict_labels)
     ac, nm, f1 = cm.evaluationClusterModelFromLabel()
     iteration = 0
-    print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
+    print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
           'nmi: {}'.format(nm),
           'f1: {}'.format(f1))
 
     # TRAIN WITH CLUSTER LABELS ITERATIVELY
-    if args.c_epochs != 0:
-        while True:
-            # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
-            iteration += 1
+    # if args.c_epochs != 0:
+    #     while True:
+    #         # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
+    #         iteration += 1
+    #
+    #         model = ClusterBooster(model, kmeans.cluster_centers_)
+    #         model.compile(optimizer=optimizer)
+    #         if args.model == 'ae' or args.model == 'vae':
+    #             model.fit(feature, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    #         else: #dae or dvae
+    #             model.fit(distorted, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    #
+    #         embeds = model.embed(feature)
+    #
+    #         kmeans = KMeans(n_clusters=m).fit(embeds)
+    #         predict_labels = kmeans.predict(embeds)
+    #         new_dist = square_dist(predict_labels, feature)
+    #
+    #         if new_dist > metric:
+    #             break
+    #         else:
+    #             metric = new_dist
+    #
+    #         cm = clustering_metrics(gnd, predict_labels)
+    #         ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+    #         print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
+    #               'nmi: {}'.format(nm),
+    #               'f1: {}'.format(f1))
 
-            model = ClusterBooster(model, kmeans.cluster_centers_)
-            model.compile(optimizer=optimizer)
-            if args.model == 'ae' or args.model == 'vae':
-                model.fit(feature, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-            else: #dae or dvae
-                model.fit(distorted, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    # file_exists = os.path.isfile('output/mymethod/results.csv')
+    # with open('output/mymethod/results.csv', 'a') as f:
+    #     columns = ['Dataset', 'Model', 'Dimension', 'Hidden', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
+    #                'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'Intra Distance']
+    #     writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
+    #
+    #     if not file_exists:
+    #         writer.writeheader()  # file doesn't exist yet, write a header
+    #     writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimension': args.dimension, 'Hidden': args.hidden,
+    #                      'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
+    #                      'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
+    #                      'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'Intra Distance': metric})
 
-            embeds = model.embed(feature)
-
-            kmeans = KMeans(n_clusters=m).fit(embeds)
-            predict_labels = kmeans.predict(embeds)
-            new_dist = square_dist(predict_labels, feature)
-
-            if new_dist > intraD:
-                break
-            else:
-                intraD = new_dist
-
-            cm = clustering_metrics(gnd, predict_labels)
-            ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-            print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(intraD), 'acc: {}'.format(ac),
-                  'nmi: {}'.format(nm),
-                  'f1: {}'.format(f1))
-
-    file_exists = os.path.isfile('output/mymethod/results.csv')
-    with open('output/mymethod/results.csv', 'a') as f:
-        columns = ['Dataset', 'Model', 'Dimension', 'Hidden', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
-                   'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'Intra Distance']
-        writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
-
-        if not file_exists:
-            writer.writeheader()  # file doesn't exist yet, write a header
-        writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimension': args.dimension, 'Hidden': args.hidden,
-                         'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
-                         'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
-                         'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'Intra Distance': intraD})
-
+    from sklearn.manifold import TSNE
+    import seaborn as sns
+    sns.set(rc={'figure.figsize': (11.7, 8.27)})
+    palette = sns.color_palette("bright", len(np.unique(predict_labels)))
+    tsne = TSNE(n_components=2, perplexity=30)
+    X_embedded = tsne.fit_transform(embeds)
+    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=predict_labels, legend='full', palette=palette)
+    plt.title('T-SNE {} original'.format(args.input))
+    plt.savefig('figures/mymethod/tsne/{}_original_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension, args.hidden), format='png')
+    plt.show()
     if args.save:
         # save embeddings
         embeds = model.embed(feature)
