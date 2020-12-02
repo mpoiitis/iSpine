@@ -11,8 +11,9 @@ from .models import DAE, DVAE, AE, VAE, ClusterBooster
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from utils.utils import save_results, salt_and_pepper
+from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter
 import matplotlib.pyplot as plt
+from scipy.sparse.linalg.eigen.arpack import eigsh
 
 
 def normalize_adj(adj, type='sym'):
@@ -65,63 +66,35 @@ def mymethod(args):
 
         num_nodes = adj.shape[0]
         m = len(np.unique(gnd))
+
+        # # find best convolution order according to eigenvalue
+        # eigvals, _ = np.linalg.eig(adj)
+        # sum = np.sum(eigvals)
+        # partial = 0
+        # best_power = -1
+        # for idx, eigval in enumerate(eigvals):
+        #     partial += eigval
+        #     if (partial / sum) >= 0.9:  # keep the eigenvalues corresponding to 90% of the matrix info
+        #         best_power = idx + 1
+        #         break
+        # print(best_power)
+
         adj = sp.coo_matrix(adj)
 
-        adj_normalized = preprocess_adj(adj)
-        adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
+        # adj_normalized = preprocess_adj(adj)
+        # adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
+        # adj_normalized_k = adj_normalized ** args.power
+        # X = adj_normalized_k.dot(feature)
 
-        adj_normalized_k = adj_normalized ** args.power
-        X = adj_normalized_k.dot(feature)
-
-        # feed k-order convolution to autoencoder
-
-        es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-        optimizer = Adam(lr=args.learning_rate)
+        h = largest_eigval_smoothing_filter(adj)
+        h_k = h ** args.power
+        X = h_k.dot(feature)
 
         # TRAIN WITHOUT CLUSTER LABELS
-        # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
-        print('Training model for {}-order convolution'.format(args.power))
-        if args.model == 'ae':
-            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-            model.compile(optimizer=optimizer, loss=MeanSquaredError())
-            model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-        elif args.model == 'vae':
-            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-            model.compile(optimizer=optimizer)
-            model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-        elif args.model == 'dvae':
-            # distort input features for denoising auto encoder
-            distorted = salt_and_pepper(feature, 0.2)
-
-            model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
-                        dropout=args.dropout)
-            model.compile(optimizer=optimizer)
-            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-        elif args.model == 'dae':
-            # distort input features for denoising auto encoder
-            distorted = salt_and_pepper(feature, 0.2)
-
-            model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
-                        dropout=args.dropout)
-            model.compile(optimizer=optimizer)
-            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-
-        embeds = model.embed(feature)
-
-        # predict cluster assignments according to the inital autoencoder
-        kmeans = KMeans(n_clusters=m).fit(embeds)
-        predict_labels = kmeans.predict(embeds)
-
-        metric = square_dist(predict_labels, feature)
-        cm = clustering_metrics(gnd, predict_labels)
-        ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-
-        print('Power: {}'.format(args.power), 'Iteration: 0  intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
-              'nmi: {}'.format(nm),
-              'f1: {}'.format(f1))
+        model, centers, metric = train(args, feature, X, m, gnd)
 
         # # TRAIN WITH CLUSTER LABELS ITERATIVELY
-        # model, embeds, predict_labels, ac, nm, f1, metric = retrain(args, feature, X, model, kmeans.cluster_centers_, metric, gnd)
+        # model, embeds, predict_labels, ac, nm, f1, metric = retrain(args, feature, X, model, centers, metric, gnd)
 
         # write_results(args, ac, nm, f1, metric)
 
@@ -136,6 +109,60 @@ def mymethod(args):
 def run_mymethod(args):
     for _ in range(args.repeats):
         mymethod(args)
+
+
+def train(args, feature, X, m, gnd):
+    """
+    Model training
+    :param args: cli arguments
+    :param feature: original feature matrix
+    :param X: the smoothed matrix
+    :param m: number of clusters
+    :param gnd: ground truth labels
+    """
+    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+    optimizer = Adam(lr=args.learning_rate)
+    # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
+    print('Training model for {}-order convolution'.format(args.power))
+    if args.model == 'ae':
+        model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=optimizer, loss=MeanSquaredError())
+        model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    elif args.model == 'vae':
+        model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    elif args.model == 'dvae':
+        # distort input features for denoising auto encoder
+        distorted = salt_and_pepper(feature, 0.2)
+
+        model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                     dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+    elif args.model == 'dae':
+        # distort input features for denoising auto encoder
+        distorted = salt_and_pepper(feature, 0.2)
+
+        model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                    dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+
+    embeds = model.embed(feature)
+
+    # predict cluster assignments according to the inital autoencoder
+    kmeans = KMeans(n_clusters=m).fit(embeds)
+    predict_labels = kmeans.predict(embeds)
+
+    metric = square_dist(predict_labels, feature)
+    cm = clustering_metrics(gnd, predict_labels)
+    ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+
+    print('Power: {}'.format(args.power), 'Iteration: 0  intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
+          'nmi: {}'.format(nm),
+          'f1: {}'.format(f1))
+    return model, kmeans.cluster_centers_, metric
 
 
 def retrain(args, feature, X, model, centers, metric, gnd):

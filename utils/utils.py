@@ -326,3 +326,22 @@ def salt_and_pepper(input, noise=0.2):
     b = np.random.binomial(n=1, p=0.5, size=input.shape)
     c = np.equal(a, 0) * b
     return input * a + c
+
+def largest_eigval_smoothing_filter(adj):
+    adj_sparse = sp.coo_matrix(adj)
+    ident = sp.eye(adj_sparse.shape[0])
+
+    adj_normalized = adj_sparse + ident
+
+    rowsum = np.array(adj_normalized.sum(1))
+    d_inv_sqrt = np.power(rowsum, -0.5).flatten()
+    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    d_inv_sqrt_sparse = sp.diags(d_inv_sqrt)
+
+    laplacian = sp.csgraph.laplacian(adj_normalized)
+    laplacian_sym = laplacian.dot(d_inv_sqrt_sparse).transpose().dot(d_inv_sqrt_sparse).tocoo()
+
+    largest_eigval, _ = eigsh(laplacian_sym, 1, which='LM')
+
+    h = ident - laplacian_sym.multiply(1 / largest_eigval)
+    return h
