@@ -112,10 +112,10 @@ def square_dist(prelabel, feature):
     count = onehot.sum(1).reshape(m, 1)
     count[count==0] = 1 # to avoid division by zero
 
-    # mean = onehot.dot(feature) / count
-    mean = onehot.dot(feature)/(count*(count - 1))
-    # a2 = (onehot.dot(feature * feature) / count).sum(1)
-    a2 = (onehot.dot(feature*feature)/(count*(count - 1))).sum(1)
+    mean = onehot.dot(feature) / count
+    # mean = onehot.dot(feature)/(count*(count - 1))
+    a2 = (onehot.dot(feature * feature) / count).sum(1)
+    # a2 = (onehot.dot(feature*feature)/(count*(count - 1))).sum(1)
     pdist2 = np.array(a2 + a2.T - 2*mean.dot(mean.T))
 
     intra_dist = pdist2.trace()

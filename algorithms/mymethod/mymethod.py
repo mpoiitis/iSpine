@@ -45,143 +45,180 @@ def preprocess_adj(adj, type='sym', loop=True):
 
 
 def mymethod(args):
-    if not os.path.exists('output/mymethod'):
-        os.makedirs('output/mymethod')
+    import tensorflow as tf
+    with tf.device('/cpu:0'):
+        if not os.path.exists('output/mymethod'):
+            os.makedirs('output/mymethod')
 
-    dataset = args.input
-    data = sio.loadmat('data/agc_data/{}.mat'.format(dataset))
-    feature = data['fea']
-    feature = feature.astype(np.float32)
-    if sp.issparse(feature):
-        feature = feature.todense()
+        dataset = args.input
+        data = sio.loadmat('data/agc_data/{}.mat'.format(dataset))
+        feature = data['fea']
+        feature = feature.astype(np.float32)
+        if sp.issparse(feature):
+            feature = feature.todense()
 
-    adj = data['W']
-    gnd = data['gnd']
-    gnd = gnd.T
-    gnd = gnd - 1
-    gnd = gnd[0, :]
+        adj = data['W']
+        gnd = data['gnd']
+        gnd = gnd.T
+        gnd = gnd - 1
+        gnd = gnd[0, :]
 
-    num_nodes = adj.shape[0]
-    m = len(np.unique(gnd))
-    adj = sp.coo_matrix(adj)
+        num_nodes = adj.shape[0]
+        m = len(np.unique(gnd))
+        adj = sp.coo_matrix(adj)
 
-    adj_normalized = preprocess_adj(adj)
-    adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
+        adj_normalized = preprocess_adj(adj)
+        adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
 
-    adj_normalized_k = adj_normalized ** args.power
-    X = adj_normalized_k.dot(feature)
+        adj_normalized_k = adj_normalized ** args.power
+        X = adj_normalized_k.dot(feature)
 
-    # feed k-order convolution to autoencoder
+        # feed k-order convolution to autoencoder
 
-    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-    optimizer = Adam(lr=args.learning_rate)
+        es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+        optimizer = Adam(lr=args.learning_rate)
 
-    # TRAIN WITHOUT CLUSTER LABELS
-    # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
-    print('Training model for {}-order convolution'.format(args.power))
-    if args.model == 'ae':
-        model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-        model.compile(optimizer=optimizer, loss=MeanSquaredError())
-        model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-    elif args.model == 'vae':
-        model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-        model.compile(optimizer=optimizer)
-        model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-    elif args.model == 'dvae':
-        # distort input features for denoising auto encoder
-        distorted = salt_and_pepper(feature, 0.2)
+        # TRAIN WITHOUT CLUSTER LABELS
+        # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
+        print('Training model for {}-order convolution'.format(args.power))
+        if args.model == 'ae':
+            model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+            model.compile(optimizer=optimizer, loss=MeanSquaredError())
+            model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+        elif args.model == 'vae':
+            model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+            model.compile(optimizer=optimizer)
+            model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+        elif args.model == 'dvae':
+            # distort input features for denoising auto encoder
+            distorted = salt_and_pepper(feature, 0.2)
 
-        model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
-                    dropout=args.dropout)
-        model.compile(optimizer=optimizer)
-        model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-    elif args.model == 'dae':
-        # distort input features for denoising auto encoder
-        distorted = salt_and_pepper(feature, 0.2)
+            model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                        dropout=args.dropout)
+            model.compile(optimizer=optimizer)
+            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+        elif args.model == 'dae':
+            # distort input features for denoising auto encoder
+            distorted = salt_and_pepper(feature, 0.2)
 
-        model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
-                    dropout=args.dropout)
-        model.compile(optimizer=optimizer)
-        model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
+            model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                        dropout=args.dropout)
+            model.compile(optimizer=optimizer)
+            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
 
-    embeds = model.embed(feature)
-
-    # predict cluster assignments according to the inital autoencoder
-    kmeans = KMeans(n_clusters=m).fit(embeds)
-    predict_labels = kmeans.predict(embeds)
-
-    metric = square_dist(predict_labels, feature)
-    cm = clustering_metrics(gnd, predict_labels)
-    ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-    iteration = 0
-    print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration),  '  intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
-          'nmi: {}'.format(nm),
-          'f1: {}'.format(f1))
-
-    # TRAIN WITH CLUSTER LABELS ITERATIVELY
-    # if args.c_epochs != 0:
-    #     while True:
-    #         # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
-    #         iteration += 1
-    #
-    #         model = ClusterBooster(model, kmeans.cluster_centers_)
-    #         model.compile(optimizer=optimizer)
-    #         if args.model == 'ae' or args.model == 'vae':
-    #             model.fit(feature, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-    #         else: #dae or dvae
-    #             model.fit(distorted, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es], verbose=0)
-    #
-    #         embeds = model.embed(feature)
-    #
-    #         kmeans = KMeans(n_clusters=m).fit(embeds)
-    #         predict_labels = kmeans.predict(embeds)
-    #         new_dist = square_dist(predict_labels, feature)
-    #
-    #         if new_dist > metric:
-    #             break
-    #         else:
-    #             metric = new_dist
-    #
-    #         cm = clustering_metrics(gnd, predict_labels)
-    #         ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-    #         print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
-    #               'nmi: {}'.format(nm),
-    #               'f1: {}'.format(f1))
-
-    # file_exists = os.path.isfile('output/mymethod/results.csv')
-    # with open('output/mymethod/results.csv', 'a') as f:
-    #     columns = ['Dataset', 'Model', 'Dimension', 'Hidden', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
-    #                'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'Intra Distance']
-    #     writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
-    #
-    #     if not file_exists:
-    #         writer.writeheader()  # file doesn't exist yet, write a header
-    #     writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimension': args.dimension, 'Hidden': args.hidden,
-    #                      'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
-    #                      'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
-    #                      'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'Intra Distance': metric})
-
-    from sklearn.manifold import TSNE
-    import seaborn as sns
-    sns.set(rc={'figure.figsize': (11.7, 8.27)})
-    palette = sns.color_palette("bright", len(np.unique(predict_labels)))
-    tsne = TSNE(n_components=2, perplexity=30)
-    X_embedded = tsne.fit_transform(embeds)
-    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=predict_labels, legend='full', palette=palette)
-    plt.title('T-SNE {} original'.format(args.input))
-    plt.savefig('figures/mymethod/tsne/{}_original_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension, args.hidden), format='png')
-    plt.show()
-    if args.save:
-        # save embeddings
         embeds = model.embed(feature)
-        embeds_to_save = [e.numpy() for e in embeds]
-        save_results(args, embeds_to_save)
 
+        # predict cluster assignments according to the inital autoencoder
+        kmeans = KMeans(n_clusters=m).fit(embeds)
+        predict_labels = kmeans.predict(embeds)
+
+        metric = square_dist(predict_labels, feature)
+        cm = clustering_metrics(gnd, predict_labels)
+        ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+
+        print('Power: {}'.format(args.power), 'Iteration: 0  intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
+              'nmi: {}'.format(nm),
+              'f1: {}'.format(f1))
+
+        # # TRAIN WITH CLUSTER LABELS ITERATIVELY
+        # model, embeds, predict_labels, ac, nm, f1, metric = retrain(args, feature, X, model, kmeans.cluster_centers_, metric, gnd)
+
+        # write_results(args, ac, nm, f1, metric)
+
+        if args.save:
+            # save embeddings
+            embeds = model.embed(feature)
+            embeds_to_save = [e.numpy() for e in embeds]
+            save_results(args, embeds_to_save)
+
+        # tsne(embeds, gnd, predict_labels, args)
 
 def run_mymethod(args):
     for _ in range(args.repeats):
         mymethod(args)
 
+
+def retrain(args, feature, X, model, centers, metric, gnd):
+    """
+    Self-supervision
+    :param args: cli arguments
+    :param feature: original feature matrix
+    :param X: the smoothed matrix
+    :param model: the pretrained model
+    :param centers: cluster centers using the embeddings of the pretrained model
+    :param metric: metric to optimize
+    :param gnd: ground truth labels
+    """
+    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+    optimizer = Adam(lr=args.learning_rate)
+
+    iteration = 0
+    if args.c_epochs != 0:
+        while True:
+            # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
+            iteration += 1
+
+            model = ClusterBooster(model, centers)
+            model.compile(optimizer=optimizer)
+            if args.model == 'ae' or args.model == 'vae':
+                model.fit(feature, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es],
+                          verbose=0)
+            else:  # dae or dvae
+                distorted = salt_and_pepper(feature, 0.2)
+                model.fit(distorted, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es],
+                          verbose=0)
+
+            embeds = model.embed(feature)
+
+            kmeans = KMeans(n_clusters=len(centers)).fit(embeds)
+            predict_labels = kmeans.predict(embeds)
+            new_dist = square_dist(predict_labels, feature)
+
+            if new_dist > metric:
+                break
+            else:
+                metric = new_dist
+
+            cm = clustering_metrics(gnd, predict_labels)
+            ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+            print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(metric),
+                  'acc: {}'.format(ac),
+                  'nmi: {}'.format(nm),
+                  'f1: {}'.format(f1))
+
+    return model, embeds, predict_labels, ac, nm, f1, metric
+
+
+def write_results(args, ac, nm, f1, metric):
+    file_exists = os.path.isfile('output/mymethod/results.csv')
+    with open('output/mymethod/results.csv', 'a') as f:
+        columns = ['Dataset', 'Model', 'Dimension', 'Hidden', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
+                   'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'Intra Distance']
+        writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
+
+        if not file_exists:
+            writer.writeheader()  # file doesn't exist yet, write a header
+        writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimension': args.dimension, 'Hidden': args.hidden,
+                         'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
+                         'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
+                         'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'Intra Distance': metric})
+
+
+def tsne(embeds, gnd, predict_labels, args):
+    from sklearn.manifold import TSNE
+    import seaborn as sns
+    sns.set(rc={'figure.figsize': (11.7, 8.27)})
+    palette = sns.color_palette("bright", len(np.unique(gnd)))
+    tsne = TSNE(n_components=2, perplexity=30)
+    X_embedded = tsne.fit_transform(embeds)
+    f, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
+    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], ax=ax1, hue=gnd, legend='full', palette=palette)
+    ax1.set_title('T-SNE {} ground truth'.format(args.input))
+    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], ax=ax2, hue=predict_labels, legend='full', palette=palette)
+    ax2.set_title('T-SNE {} predicted labels'.format(args.input))
+    plt.savefig('figures/mymethod/tsne/{}_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension,
+                                                                               args.hidden), format='png')
+    plt.show()
 
 
 def plot_results(config, pivot='Learning Rate'):
