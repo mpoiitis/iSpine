@@ -1,10 +1,10 @@
-import scipy.io as sio
 import csv
 import os
 import numpy as np
 import scipy.sparse as sp
 from sklearn.cluster import KMeans
 from utils.metrics import clustering_metrics
+from utils.utils import load_data_trunc
 from utils.plots import tsne
 from .models import DAE, DVAE, AE, VAE, ClusterBooster
 from tensorflow.keras.optimizers import Adam
@@ -68,14 +68,24 @@ def run_mymethod(args):
     if not os.path.exists('output/mymethod'):
         os.makedirs('output/mymethod')
 
-    from utils.utils import load_data_trunc
     adj, feature, gnd, idx_train, idx_val, idx_test = load_data_trunc(args.input)
 
     if args.input != "wiki":
-        gnd = np.argmax(gnd, axis=1) # convert one hot labels to integer ones
+        gnd = np.argmax(gnd, axis=1)  # convert one hot labels to integer ones
         feature = feature.todense()
-
     feature = feature.astype(np.float32)
+
+    # # find best convolution order according to eigenvalue
+    # eigvals, _ = np.linalg.eig(adj)
+    # sum = np.sum(eigvals)
+    # partial = 0
+    # best_power = -1
+    # for idx, eigval in enumerate(eigvals):
+    #     partial += eigval
+    #     if (partial / sum) >= 0.9:  # keep the eigenvalues corresponding to 90% of the matrix info
+    #         best_power = idx + 1
+    #         break
+    # print(best_power)
 
     h = largest_eigval_smoothing_filter(adj)
     h_k = h ** args.power
