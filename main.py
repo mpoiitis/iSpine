@@ -8,6 +8,9 @@ from algorithms.dane.dane import run_dane
 from algorithms.mymethod.mymethod import run_mymethod
 from algorithms.gat.gat import run_gat
 
+from utils.plots import plot_results
+
+
 def parse_args():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter, conflict_handler='resolve')
     subparsers = parser.add_subparsers(dest='mode', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
@@ -107,7 +110,6 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    from algorithms.mymethod.mymethod import plot_results
 
     # config = {'Dataset': 'pubmed', 'Model': 'ae', 'Dimension': 100, 'Power': 7,
     #           'Epochs': 500, 'Batch Size': 100, 'Learning Rate': 0.001, 'Cluster Epochs': 0, 'Dropout': 0.2}
