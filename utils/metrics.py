@@ -100,7 +100,7 @@ class clustering_metrics():
         adjscore = metrics.adjusted_rand_score(self.true_label, self.pred_label)
         acc, f1_macro, precision_macro, recall_macro, f1_micro, precision_micro, recall_micro = self.clusteringAcc()
 
-        return acc, nmi, adjscore
+        return acc, nmi, f1_macro, adjscore
 
 def to_onehot(prelabel):
     k = len(np.unique(prelabel))

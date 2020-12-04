@@ -2,17 +2,15 @@ import scipy.io as sio
 import csv
 import os
 import numpy as np
-import pandas as pd
 import scipy.sparse as sp
-from textwrap import wrap
 from sklearn.cluster import KMeans
-from utils.metrics import clustering_metrics, square_dist
+from utils.metrics import clustering_metrics
+from utils.plots import tsne
 from .models import DAE, DVAE, AE, VAE, ClusterBooster
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter
-import matplotlib.pyplot as plt
 from scipy.sparse.linalg.eigen.arpack import eigsh
 
 
@@ -45,7 +43,26 @@ def preprocess_adj(adj, type='sym', loop=True):
     return adj_normalized
 
 
-def mymethod(args):
+def mymethod(args, feature, X, gnd):
+
+    # TRAIN WITHOUT CLUSTER LABELS
+    model, centers, ac, nm, f1, ari = train(args, feature, X, gnd)
+
+    # # TRAIN WITH CLUSTER LABELS ITERATIVELY
+    # model, embeds, predict_labels, ac, nm, f1, ari = retrain(args, feature, X, model, centers, ari, gnd)
+
+    write_results(args, ac, nm, f1, ari)
+
+    if args.save:
+        # save embeddings
+        embeds = model.embed(feature)
+        embeds_to_save = [e.numpy() for e in embeds]
+        save_results(args, embeds_to_save)
+
+    # tsne(embeds, gnd, args)
+
+
+def run_mymethod(args):
     import tensorflow as tf
     with tf.device('/cpu:0'):
         if not os.path.exists('output/mymethod'):
@@ -65,7 +82,6 @@ def mymethod(args):
         gnd = gnd[0, :]
 
         num_nodes = adj.shape[0]
-        m = len(np.unique(gnd))
 
         # # find best convolution order according to eigenvalue
         # eigvals, _ = np.linalg.eig(adj)
@@ -90,36 +106,20 @@ def mymethod(args):
         h_k = h ** args.power
         X = h_k.dot(feature)
 
-        # TRAIN WITHOUT CLUSTER LABELS
-        model, centers, metric = train(args, feature, X, m, gnd)
-
-        # # TRAIN WITH CLUSTER LABELS ITERATIVELY
-        # model, embeds, predict_labels, ac, nm, f1, metric = retrain(args, feature, X, model, centers, metric, gnd)
-
-        # write_results(args, ac, nm, f1, metric)
-
-        if args.save:
-            # save embeddings
-            embeds = model.embed(feature)
-            embeds_to_save = [e.numpy() for e in embeds]
-            save_results(args, embeds_to_save)
-
-        # tsne(embeds, gnd, predict_labels, args)
-
-def run_mymethod(args):
-    for _ in range(args.repeats):
-        mymethod(args)
+        for _ in range(args.repeats):
+            mymethod(args, feature, X, gnd)
 
 
-def train(args, feature, X, m, gnd):
+def train(args, feature, X, gnd):
     """
     Model training
     :param args: cli arguments
     :param feature: original feature matrix
     :param X: the smoothed matrix
-    :param m: number of clusters
     :param gnd: ground truth labels
     """
+    m = len(np.unique(gnd)) # number of clusters according to ground truth
+
     es = EarlyStopping(monitor='loss', patience=args.early_stopping)
     optimizer = Adam(lr=args.learning_rate)
     # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
@@ -155,17 +155,17 @@ def train(args, feature, X, m, gnd):
     kmeans = KMeans(n_clusters=m).fit(embeds)
     predict_labels = kmeans.predict(embeds)
 
-    metric = square_dist(predict_labels, feature)
+    # metric = square_dist(predict_labels, feature)
     cm = clustering_metrics(gnd, predict_labels)
-    ac, nm, f1 = cm.evaluationClusterModelFromLabel()
+    ac, nm, f1, ari = cm.evaluationClusterModelFromLabel()
 
-    print('Power: {}'.format(args.power), 'Iteration: 0  intra_dist: {}'.format(metric), 'acc: {}'.format(ac),
+    print('Power: {}'.format(args.power), 'Iteration: 0  ari: {}'.format(ari), 'acc: {}'.format(ac),
           'nmi: {}'.format(nm),
           'f1: {}'.format(f1))
-    return model, kmeans.cluster_centers_, metric
+    return model, kmeans.cluster_centers_, ac, nm, f1, ari
 
 
-def retrain(args, feature, X, model, centers, metric, gnd):
+def retrain(args, feature, X, model, centers, ari, gnd):
     """
     Self-supervision
     :param args: cli arguments
@@ -173,7 +173,7 @@ def retrain(args, feature, X, model, centers, metric, gnd):
     :param X: the smoothed matrix
     :param model: the pretrained model
     :param centers: cluster centers using the embeddings of the pretrained model
-    :param metric: metric to optimize
+    :param ari: adjusted rand index. Metric to optimize
     :param gnd: ground truth labels
     """
     es = EarlyStopping(monitor='loss', patience=args.early_stopping)
@@ -199,28 +199,29 @@ def retrain(args, feature, X, model, centers, metric, gnd):
 
             kmeans = KMeans(n_clusters=len(centers)).fit(embeds)
             predict_labels = kmeans.predict(embeds)
-            new_dist = square_dist(predict_labels, feature)
-
-            if new_dist > metric:
-                break
-            else:
-                metric = new_dist
+            # new_dist = square_dist(predict_labels, feature)
 
             cm = clustering_metrics(gnd, predict_labels)
-            ac, nm, f1 = cm.evaluationClusterModelFromLabel()
-            print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   intra_dist: {}'.format(metric),
+            ac, nm, f1, new_ari = cm.evaluationClusterModelFromLabel()
+
+            if new_ari < ari:
+                break
+            else:
+                ari = new_ari
+
+            print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   ari: {}'.format(new_ari),
                   'acc: {}'.format(ac),
                   'nmi: {}'.format(nm),
                   'f1: {}'.format(f1))
 
-    return model, embeds, predict_labels, ac, nm, f1, metric
+    return model, embeds, predict_labels, ac, nm, f1, new_ari
 
 
-def write_results(args, ac, nm, f1, metric):
+def write_results(args, ac, nm, f1, ari):
     file_exists = os.path.isfile('output/mymethod/results.csv')
     with open('output/mymethod/results.csv', 'a') as f:
         columns = ['Dataset', 'Model', 'Dimension', 'Hidden', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
-                   'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'Intra Distance']
+                   'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'ARI']
         writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
 
         if not file_exists:
@@ -228,101 +229,5 @@ def write_results(args, ac, nm, f1, metric):
         writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimension': args.dimension, 'Hidden': args.hidden,
                          'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
                          'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
-                         'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'Intra Distance': metric})
+                         'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'ARI': ari})
 
-
-def tsne(embeds, gnd, predict_labels, args):
-    from sklearn.manifold import TSNE
-    import seaborn as sns
-    sns.set(rc={'figure.figsize': (11.7, 8.27)})
-    palette = sns.color_palette("bright", len(np.unique(gnd)))
-    tsne = TSNE(n_components=2, perplexity=30)
-    X_embedded = tsne.fit_transform(embeds)
-    f, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
-    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], ax=ax1, hue=gnd, legend='full', palette=palette)
-    ax1.set_title('T-SNE {} ground truth'.format(args.input))
-    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], ax=ax2, hue=predict_labels, legend='full', palette=palette)
-    ax2.set_title('T-SNE {} predicted labels'.format(args.input))
-    plt.savefig('figures/mymethod/tsne/{}_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension,
-                                                                               args.hidden), format='png')
-    plt.show()
-
-
-def plot_results(config, pivot='Learning Rate'):
-
-    filepath = 'figures/mymethod/{}'.format(config['Model'])
-    if not os.path.exists(filepath):
-        os.makedirs(filepath)
-
-    data = pd.read_csv('output/mymethod/results.csv')
-    for k, v in config.items():
-        data = data.loc[data[k] == v]
-
-    data = data.sort_values(pivot)
-
-    unique_xaxis = np.unique(data[pivot])
-
-    if config['Dataset'] == 'cora':
-        agc_acc = len(unique_xaxis) * [0.6892]
-        agc_f1 = len(unique_xaxis) * [0.6561]
-        agc_nmi = len(unique_xaxis) * [0.5368]
-    elif config['Dataset'] == 'citeseer':
-        agc_acc = len(unique_xaxis) * [0.6700]
-        agc_f1 = len(unique_xaxis) * [0.6248]
-        agc_nmi = len(unique_xaxis) * [0.4113]
-    elif config['Dataset'] == 'pubmed':
-        agc_acc = len(unique_xaxis) * [0.6978]
-        agc_f1 = len(unique_xaxis) * [0.6872]
-        agc_nmi = len(unique_xaxis) * [0.3159]
-    else:
-        return
-
-    acc_means = data.groupby(pivot, as_index=False)['Accuracy'].mean()
-    nmi_means = data.groupby(pivot, as_index=False)['NMI'].mean()
-    f1s_means = data.groupby(pivot, as_index=False)['F1'].mean()
-
-    acc_stds = data.groupby(pivot, as_index=False)['Accuracy'].std()
-    nmi_stds = data.groupby(pivot, as_index=False)['NMI'].std()
-    f1_stds = data.groupby(pivot, as_index=False)['F1'].std()
-
-    fig, ax = plt.subplots(3, sharex=True)
-    ax[0].plot(acc_means[pivot], acc_means['Accuracy'], color='purple', label='Acc', marker='x')
-    ax[0].fill_between(acc_means[pivot], acc_means['Accuracy'] - acc_stds['Accuracy'], acc_means['Accuracy'] + acc_stds['Accuracy'], color='purple', alpha=0.2)
-    ax[0].plot(acc_means[pivot], agc_acc, color='black', label='AGC')
-    ax[0].legend()
-
-    ax[1].plot(f1s_means[pivot], f1s_means['F1'], color='yellow', label='F1', marker='x')
-    ax[1].fill_between(f1s_means[pivot], f1s_means['F1'] - f1_stds['F1'], f1s_means['F1'] + f1_stds['F1'], color='yellow', alpha=0.2)
-    ax[1].plot(f1s_means[pivot], agc_f1, color='black', label='AGC')
-    ax[1].legend()
-
-    ax[2].plot(nmi_means[pivot], nmi_means['NMI'], color='green', label='NMI', marker='x')
-    ax[2].fill_between(nmi_means[pivot], nmi_means['NMI'] - nmi_stds['NMI'], nmi_means['NMI'] + nmi_stds['NMI'], color='green', alpha=0.2)
-    ax[2].plot(nmi_means[pivot], agc_nmi, color='black', label='AGC')
-    ax[2].legend()
-
-    ax[0].set_xlabel(pivot)
-    ax[1].set_xlabel(pivot)
-    ax[2].set_xlabel(pivot)
-    ax[0].set_ylabel('Score')
-    ax[1].set_ylabel('Score')
-    ax[2].set_ylabel('Score')
-
-    num_items = len(config.keys())
-    title = ''
-    for i, (k, v) in enumerate(config.items()):
-        if i == num_items - 1:
-            title += k + ':' + str(v)
-        else:
-            title += k + ':' + str(v) + ', '
-    plt.suptitle("\n".join(wrap(title, 75)))
-
-    filepath = filepath + '/'
-    for i, v in enumerate(config.values()):
-        if i == num_items - 1:
-            filepath += str(v)
-        else:
-            filepath += str(v) + '_'
-    filepath += '.png'
-    plt.savefig(filepath, format='png')
-    plt.show()

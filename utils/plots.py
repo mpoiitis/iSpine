@@ -1,7 +1,11 @@
 from sklearn.manifold import TSNE
+from textwrap import wrap
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import os
+
 
 def tsne(embeds, gnd, args):
     sns.set(rc={'figure.figsize': (11.7, 8.27)})
@@ -14,4 +18,83 @@ def tsne(embeds, gnd, args):
 
     plt.savefig('figures/mymethod/tsne/{}_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension,
                                                                                args.hidden), format='png')
+    plt.show()
+
+def plot_results(config, pivot='Learning Rate'):
+
+    filepath = 'figures/mymethod/{}'.format(config['Model'])
+    if not os.path.exists(filepath):
+        os.makedirs(filepath)
+
+    data = pd.read_csv('output/mymethod/results.csv')
+    for k, v in config.items():
+        data = data.loc[data[k] == v]
+
+    data = data.sort_values(pivot)
+
+    unique_xaxis = np.unique(data[pivot])
+
+    if config['Dataset'] == 'cora':
+        agc_acc = len(unique_xaxis) * [0.6892]
+        agc_f1 = len(unique_xaxis) * [0.6561]
+        agc_nmi = len(unique_xaxis) * [0.5368]
+    elif config['Dataset'] == 'citeseer':
+        agc_acc = len(unique_xaxis) * [0.6700]
+        agc_f1 = len(unique_xaxis) * [0.6248]
+        agc_nmi = len(unique_xaxis) * [0.4113]
+    elif config['Dataset'] == 'pubmed':
+        agc_acc = len(unique_xaxis) * [0.6978]
+        agc_f1 = len(unique_xaxis) * [0.6872]
+        agc_nmi = len(unique_xaxis) * [0.3159]
+    else:
+        return
+
+    acc_means = data.groupby(pivot, as_index=False)['Accuracy'].mean()
+    nmi_means = data.groupby(pivot, as_index=False)['NMI'].mean()
+    f1s_means = data.groupby(pivot, as_index=False)['F1'].mean()
+
+    acc_stds = data.groupby(pivot, as_index=False)['Accuracy'].std()
+    nmi_stds = data.groupby(pivot, as_index=False)['NMI'].std()
+    f1_stds = data.groupby(pivot, as_index=False)['F1'].std()
+
+    fig, ax = plt.subplots(3, sharex=True)
+    ax[0].plot(acc_means[pivot], acc_means['Accuracy'], color='purple', label='Acc', marker='x')
+    ax[0].fill_between(acc_means[pivot], acc_means['Accuracy'] - acc_stds['Accuracy'], acc_means['Accuracy'] + acc_stds['Accuracy'], color='purple', alpha=0.2)
+    ax[0].plot(acc_means[pivot], agc_acc, color='black', label='AGC')
+    ax[0].legend()
+
+    ax[1].plot(f1s_means[pivot], f1s_means['F1'], color='yellow', label='F1', marker='x')
+    ax[1].fill_between(f1s_means[pivot], f1s_means['F1'] - f1_stds['F1'], f1s_means['F1'] + f1_stds['F1'], color='yellow', alpha=0.2)
+    ax[1].plot(f1s_means[pivot], agc_f1, color='black', label='AGC')
+    ax[1].legend()
+
+    ax[2].plot(nmi_means[pivot], nmi_means['NMI'], color='green', label='NMI', marker='x')
+    ax[2].fill_between(nmi_means[pivot], nmi_means['NMI'] - nmi_stds['NMI'], nmi_means['NMI'] + nmi_stds['NMI'], color='green', alpha=0.2)
+    ax[2].plot(nmi_means[pivot], agc_nmi, color='black', label='AGC')
+    ax[2].legend()
+
+    ax[0].set_xlabel(pivot)
+    ax[1].set_xlabel(pivot)
+    ax[2].set_xlabel(pivot)
+    ax[0].set_ylabel('Score')
+    ax[1].set_ylabel('Score')
+    ax[2].set_ylabel('Score')
+
+    num_items = len(config.keys())
+    title = ''
+    for i, (k, v) in enumerate(config.items()):
+        if i == num_items - 1:
+            title += k + ':' + str(v)
+        else:
+            title += k + ':' + str(v) + ', '
+    plt.suptitle("\n".join(wrap(title, 75)))
+
+    filepath = filepath + '/'
+    for i, v in enumerate(config.values()):
+        if i == num_items - 1:
+            filepath += str(v)
+        else:
+            filepath += str(v) + '_'
+    filepath += '.png'
+    plt.savefig(filepath, format='png')
     plt.show()
