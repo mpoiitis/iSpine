@@ -144,7 +144,6 @@ def load_wiki():
     scaler = preprocess.MinMaxScaler()
     # features = preprocess.normalize(features, norm='l2')
     features = scaler.fit_transform(features)
-    features = torch.FloatTensor(features)
 
     return adj, features, label
 
@@ -392,10 +391,10 @@ def largest_eigval_smoothing_filter(adj):
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_inv_sqrt_sparse = sp.diags(d_inv_sqrt)
 
-    laplacian = sp.csgraph.laplacian(adj_normalized)
-    laplacian_sym = laplacian.dot(d_inv_sqrt_sparse).transpose().dot(d_inv_sqrt_sparse).tocoo()
+    laplacian = sp.csgraph.laplacian(adj_normalized, normed=True) # the symmetric normalized laplacian
 
-    largest_eigval, _ = eigsh(laplacian_sym, 1, which='LM')
+    largest_eigval, _ = eigsh(laplacian, 1, which='LM')
+    largest_eigval = largest_eigval.round(decimals=4) # round to avoid floating point overflow
 
-    h = ident - laplacian_sym.multiply(1 / largest_eigval)
+    h = ident - laplacian.multiply(1 / largest_eigval)
     return h

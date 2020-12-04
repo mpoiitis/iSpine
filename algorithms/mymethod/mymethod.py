@@ -51,9 +51,9 @@ def mymethod(args, feature, X, gnd):
     # # TRAIN WITH CLUSTER LABELS ITERATIVELY
     # model, embeds, predict_labels, ac, nm, f1, ari = retrain(args, feature, X, model, centers, ari, gnd)
 
-    write_results(args, ac, nm, f1, ari)
-
     if args.save:
+        write_results(args, ac, nm, f1, ari)
+
         # save embeddings
         embeds = model.embed(feature)
         embeds_to_save = [e.numpy() for e in embeds]
@@ -63,51 +63,27 @@ def mymethod(args, feature, X, gnd):
 
 
 def run_mymethod(args):
-    import tensorflow as tf
-    with tf.device('/cpu:0'):
-        if not os.path.exists('output/mymethod'):
-            os.makedirs('output/mymethod')
+    # import tensorflow as tf
+    # with tf.device('/cpu:0'):
+    if not os.path.exists('output/mymethod'):
+        os.makedirs('output/mymethod')
 
-        dataset = args.input
-        data = sio.loadmat('data/agc_data/{}.mat'.format(dataset))
-        feature = data['fea']
-        feature = feature.astype(np.float32)
-        if sp.issparse(feature):
-            feature = feature.todense()
+    from utils.utils import load_data_trunc
+    adj, feature, gnd, idx_train, idx_val, idx_test = load_data_trunc(args.input)
 
-        adj = data['W']
-        gnd = data['gnd']
-        gnd = gnd.T
-        gnd = gnd - 1
-        gnd = gnd[0, :]
+    if args.input != "wiki":
+        gnd = np.argmax(gnd, axis=1) # convert one hot labels to integer ones
+        feature = feature.todense()
 
-        num_nodes = adj.shape[0]
+    feature = feature.astype(np.float32)
 
-        # # find best convolution order according to eigenvalue
-        # eigvals, _ = np.linalg.eig(adj)
-        # sum = np.sum(eigvals)
-        # partial = 0
-        # best_power = -1
-        # for idx, eigval in enumerate(eigvals):
-        #     partial += eigval
-        #     if (partial / sum) >= 0.9:  # keep the eigenvalues corresponding to 90% of the matrix info
-        #         best_power = idx + 1
-        #         break
-        # print(best_power)
+    h = largest_eigval_smoothing_filter(adj)
+    h_k = h ** args.power
 
-        adj = sp.coo_matrix(adj)
+    X = h_k.dot(feature)
 
-        # adj_normalized = preprocess_adj(adj)
-        # adj_normalized = (sp.eye(adj_normalized.shape[0]) + adj_normalized) / 2
-        # adj_normalized_k = adj_normalized ** args.power
-        # X = adj_normalized_k.dot(feature)
-
-        h = largest_eigval_smoothing_filter(adj)
-        h_k = h ** args.power
-        X = h_k.dot(feature)
-
-        for _ in range(args.repeats):
-            mymethod(args, feature, X, gnd)
+    for _ in range(args.repeats):
+        mymethod(args, feature, X, gnd)
 
 
 def train(args, feature, X, gnd):

@@ -16,7 +16,7 @@ def parse_args():
     subparsers = parser.add_subparsers(dest='mode', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
 
     embedding_parser = subparsers.add_parser('embedding', help="Runs an embedding algorithm to produce the representation.")
-    embedding_parser.add_argument('input', choices=['cora', 'citeseer', 'pubmed'], help="Input graph dataset. Options: ['cora', 'citeseer', 'pubmed']")
+    embedding_parser.add_argument('input', choices=['cora', 'citeseer', 'pubmed', 'wiki'], help="Input graph dataset. Options: ['cora', 'citeseer', 'pubmed', 'wiki']")
     embedding_parser.add_argument('output', help='Output representation file path.')
     embedding_subparsers = embedding_parser.add_subparsers(dest='method', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
 
