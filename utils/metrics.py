@@ -55,6 +55,7 @@ class clustering_metrics():
 
         l2 = list(set(self.pred_label))
         numclass2 = len(l2)
+
         if numclass1 != numclass2:
             print('Class Not equal, Error!!!!')
             return 0
@@ -85,15 +86,21 @@ class clustering_metrics():
 
         acc = metrics.accuracy_score(self.true_label, new_predict)
         f1_macro = metrics.f1_score(self.true_label, new_predict, average='macro')
+        precision_macro = metrics.precision_score(self.true_label, new_predict, average='macro')
+        recall_macro = metrics.recall_score(self.true_label, new_predict, average='macro')
+        f1_micro = metrics.f1_score(self.true_label, new_predict, average='micro')
+        precision_micro = metrics.precision_score(self.true_label, new_predict, average='micro')
+        recall_micro = metrics.recall_score(self.true_label, new_predict, average='micro')
 
-        return acc, f1_macro
+        return acc, f1_macro, precision_macro, recall_macro, f1_micro, precision_micro, recall_micro
 
 
     def evaluationClusterModelFromLabel(self):
         nmi = metrics.normalized_mutual_info_score(self.true_label, self.pred_label)
-        acc, f1_macro = self.clusteringAcc()
+        adjscore = metrics.adjusted_rand_score(self.true_label, self.pred_label)
+        acc, f1_macro, precision_macro, recall_macro, f1_micro, precision_micro, recall_micro = self.clusteringAcc()
 
-        return acc, nmi, f1_macro
+        return acc, nmi, adjscore
 
 def to_onehot(prelabel):
     k = len(np.unique(prelabel))
