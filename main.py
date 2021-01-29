@@ -7,6 +7,7 @@ from algorithms.agc.agc import run_agc
 from algorithms.dane.dane import run_dane
 from algorithms.mymethod.mymethod import run_mymethod
 from algorithms.gat.gat import run_gat
+from algorithms.age.age import run_age
 
 from utils.plots import plot_results
 
@@ -17,7 +18,6 @@ def parse_args():
 
     embedding_parser = subparsers.add_parser('embedding', help="Runs an embedding algorithm to produce the representation.")
     embedding_parser.add_argument('input', choices=['cora', 'citeseer', 'pubmed', 'wiki'], help="Input graph dataset. Options: ['cora', 'citeseer', 'pubmed', 'wiki']")
-    embedding_parser.add_argument('output', help='Output representation file path.')
     embedding_subparsers = embedding_parser.add_subparsers(dest='method', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
 
     gcn_parser = embedding_subparsers.add_parser('gcn', help='GCN method.')
@@ -85,19 +85,34 @@ def parse_args():
     gat_parser.add_argument("--ffd-drop", default=0.6, type=float, help="Dropout rate (1 - keep probability) for features. Default is 0.6.")
     gat_parser.add_argument("--attn-drop", default=0.6, type=float, help="Dropout rate (1 - keep probability) for attention. Default is 0.6.")
 
+    age_parser = embedding_subparsers.add_parser('age', help='AGE method.')
+    age_parser.add_argument('--gnnlayers', type=int, default=3, help="Number of gnn layers")
+    age_parser.add_argument('--linlayers', type=int, default=1, help="Number of hidden layers")
+    age_parser.add_argument('--epochs', type=int, default=400, help='Number of epochs to train.')
+    age_parser.add_argument('--dims', type=int, default=[500], help='Number of units in hidden layer 1.')
+    age_parser.add_argument('--lr', type=float, default=0.001, help='Initial learning rate.')
+    age_parser.add_argument('--upth_st', type=float, default=0.0015, help='Upper Threshold start.')
+    age_parser.add_argument('--lowth_st', type=float, default=0.1, help='Lower Threshold start.')
+    age_parser.add_argument('--upth_ed', type=float, default=0.001, help='Upper Threshold end.')
+    age_parser.add_argument('--lowth_ed', type=float, default=0.5, help='Lower Threshold end.')
+    age_parser.add_argument('--upd', type=int, default=10, help='Update epoch.')
+    age_parser.add_argument('--bs', type=int, default=10000, help='Batchsize.')
+    age_parser.add_argument('--dataset', type=str, default='citeseer', help='type of dataset.')
+    age_parser.add_argument('--no-cuda', action='store_true', default=False, help='Disables CUDA training.')
+
     mymethod_parser = embedding_subparsers.add_parser('mymethod', help='My no-name method.')
+    mymethod_parser.add_argument("--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
+    mymethod_parser.add_argument("--model", default='ae', type=str, choices=['ae', 'vae', 'dae', 'dvae'], help="Type of autoencoder. Simple, variational or denoising. Default is ae.")
     mymethod_parser.add_argument("--dimension", default=100, type=int, help="Embedding dimension. Default is 100.")
     mymethod_parser.add_argument('--hidden', default=200, type=int, help="Hidden layer dimension. Default is 200.")
     mymethod_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
     mymethod_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
     mymethod_parser.add_argument("--batch-size", default=100, type=int, help="Size of the batch used for training. Default is 100.")
     mymethod_parser.add_argument("--epochs", default=500, type=int, help="Number of epochs. Default is 500.")
-    mymethod_parser.add_argument('--upth_st', type=float, default=0.0015, help='Upper Threshold start.')
-    mymethod_parser.add_argument('--lowth_st', type=float, default=0.1, help='Lower Threshold start.')
-    mymethod_parser.add_argument('--upth_ed', type=float, default=0.001, help='Upper Threshold end.')
-    mymethod_parser.add_argument('--lowth_ed', type=float, default=0.5, help='Lower Threshold end.')
-    mymethod_parser.add_argument('--update', type=int, default=10, help='Update epoch.')
+    mymethod_parser.add_argument("--c-epochs", default=500, type=int, help="Number of epochs for Cluster Booster. If None, cluster boosting won't be applied. Default is 500.")
+    mymethod_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
     mymethod_parser.add_argument("--power", default=8, type=int, help="The upper bound of convolution order to search, Default is 8.")
+    mymethod_parser.add_argument('--upd', type=int, default=10, help='Update epoch.')
     mymethod_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 
     evaluation_parser = subparsers.add_parser('evaluation', help="Runs an evaluation algorithm to test the produced embeddings.")
@@ -131,6 +146,8 @@ if __name__ == "__main__":
         run_gat(args)
     elif args.method == 'mymethod':
         run_mymethod(args)
+    elif args.method == 'age':
+        run_age(args)
     else:
         pass
 

@@ -1,191 +1,230 @@
 import csv
 import os
-import time
 import numpy as np
 import scipy.sparse as sp
 from tqdm import tqdm
-from sklearn.cluster import SpectralClustering, KMeans
-from sklearn.preprocessing import normalize
-from sklearn import metrics
-from utils.metrics import clustering_metrics
+from sklearn.cluster import KMeans
+from utils.metrics import clustering_metrics, clustering
 from utils.utils import load_data_trunc
-from .models import AE, ClusterBooster
 import tensorflow as tf
+from .models import DAE, DVAE, AE, VAE, ClusterBooster
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping
-from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter
+from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
 
 
-def normalize_adj(adj, type='sym'):
-    """Symmetrically normalize adjacency matrix."""
-    if type == 'sym':
-        adj = sp.coo_matrix(adj)
-        rowsum = np.array(adj.sum(1))
-        # d_inv_sqrt = np.power(rowsum, -0.5)
-        # d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
-        # return adj*d_inv_sqrt*d_inv_sqrt.flatten()
-        d_inv_sqrt = np.power(rowsum, -0.5).flatten()
-        d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
-        d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
-        return d_mat_inv_sqrt.dot(adj).dot(d_mat_inv_sqrt).tocoo()
-    elif type == 'rw':
-        rowsum = np.array(adj.sum(1))
-        d_inv = np.power(rowsum, -1.0).flatten()
-        d_inv[np.isinf(d_inv)] = 0.
-        d_mat_inv = sp.diags(d_inv)
-        adj_normalized = d_mat_inv.dot(adj)
-        return adj_normalized
+class CMetricsTraceCallback(tf.keras.callbacks.Callback):
+    def __init__(self, upd, best_cl, Cluster, feature, gnd):
+        super(CMetricsTraceCallback, self).__init__()
+        self.upd = upd
+        self.best_db = best_cl
+        self.Cluster = Cluster
+        self.feature = feature
+        self.gnd = gnd
+        self.best_epoch = 0
+        self.cluster_centers = self.Cluster.cluster_centers_
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if (epoch + 1) % self.upd == 0:
+            embeds = self.model.embed(self.feature)
+            db, acc, nmi, f1, adjscore, centers = clustering(self.Cluster, embeds, self.gnd)
+            tqdm.write("DB: {} ACC: {} NMI: {} ARI: {}".format(db, acc, nmi, adjscore))
+            if db >= self.best_db:
+                self.best_db = db
+                self.best_acc = acc
+                self.best_nmi = nmi
+                self.best_f1 = f1
+                self.best_ari = adjscore
+                self.best_epoch = epoch
+                self.cluster_centers = centers
 
 
-def preprocess_adj(adj, type='sym', loop=True):
-    """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
-    if loop:
-        adj = adj + sp.eye(adj.shape[0])
-    adj_normalized = normalize_adj(adj, type=type)
-    return adj_normalized
+def mymethod(args, feature, X, gnd):
+    save_location = 'output/{}_{}_{}_power{}_epochs{}_hidden{}_dimension{}-batch{}-lr{}-drop{}'.format(args.input, args.method,
+        args.model, args.power, args.epochs, args.hidden, args.dimension, args.batch_size, args.learning_rate, args.dropout)
 
+    not_exists = True if not os.path.exists(save_location) else False # used to write metrics when the model is trained
+    # TRAIN WITHOUT CLUSTER LABELS
+    model, centers, acc, nmi, f1, ari = train(args, feature, X, gnd, save_location)
 
-def update_similarity(z, upper_threshold, lower_treshold):
-    """
-    Calculate the pairwise similarity matrix.
-    Rank node pairs, and get a sample accoring to the given thresholds
-    """
-    cosine = np.matmul(z, np.transpose(z))
-    cosine = cosine.reshape([-1, ])
-    pos_num = round(upper_threshold * len(cosine))
-    neg_num = round((1 - lower_treshold) * len(cosine))
+    # # TRAIN WITH CLUSTER LABELS ITERATIVELY
+    # model, embeds, predict_labels, acc, nmi, f1, ari = retrain(args, feature, X, model, centers, ari, gnd)
 
-    pos_inds = np.argpartition(-cosine, pos_num)[:pos_num]
-    neg_inds = np.argpartition(cosine, neg_num)[:neg_num]
+    if args.save:
+        if not_exists:
+            write_results(args, acc, nmi, f1, ari)
 
-    return np.array(pos_inds), np.array(neg_inds)
+        # save embeddings
+        embeds = model.embed(feature)
+        embeds_to_save = [e.numpy() for e in embeds]
+        save_results(args, save_location, embeds_to_save)
 
-
-def update_threshold(upper_threshold, lower_treshold, up_eta, low_eta):
-    upth = upper_threshold + up_eta
-    lowth = lower_treshold + low_eta
-    return upth, lowth
-
-
-def clustering(Cluster, feature, true_labels):
-    """
-    Clusters the given features and reports the corresponding metrics.
-    Davies-Bouldin index is the metric used to decide the better clustering
-    :param Cluster: The clustering algorithm. Default is spectral clustering
-    :param feature: the feature matrix
-    :param true_labels: ground truth labels
-    """
-    f_adj = np.matmul(feature, np.transpose(feature))
-    predict_labels = Cluster.fit_predict(f_adj)
-
-    cm = clustering_metrics(true_labels, predict_labels)
-    db = -metrics.davies_bouldin_score(f_adj, predict_labels)
-    acc, nmi, f1, ari = cm.evaluationClusterModelFromLabel()
-
-    return db, acc, nmi, f1, ari
+    # tsne(embeds, gnd, args)
 
 
 def run_mymethod(args):
     # import tensorflow as tf
     # with tf.device('/cpu:0'):
-    if not os.path.exists('output/mymethod'):
-        os.makedirs('output/mymethod')
-    # READ INPUT
-    adj, feature, labels, idx_train, idx_val, idx_test = load_data_trunc(args.input)
+    seed = 123
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
 
+    adj, feature, gnd, idx_train, idx_val, idx_test = load_data_trunc(args.input)
+
+    # convert one hot labels to integer ones
     if args.input != "wiki":
-        labels = np.argmax(labels, axis=1)  # convert one hot labels to integer ones
+        gnd = np.argmax(gnd, axis=1)
         feature = feature.todense()
     feature = feature.astype(np.float32)
-    n_nodes, feat_dim = feature.shape
 
-    # SET CLUSTERING PARAMS
-    n_clusters = len(np.unique(labels))
-    Cluster = SpectralClustering(n_clusters=n_clusters, affinity='precomputed', random_state=0)
+    adj = sp.coo_matrix(adj)
+    adj_normalized = preprocess_adj(adj)
 
-    # LAPLACIAN SMOOTHING
-    h = largest_eigval_smoothing_filter(adj)
+    h = largest_eigval_smoothing_filter(adj_normalized)
     h_k = h ** args.power
     X = h_k.dot(feature)
 
-    # INITIAL CLUSTERING
-    best_db, best_acc, best_nmi, best_f1, best_ari = clustering(Cluster, feature, labels)
+    for _ in range(args.repeats):
+        mymethod(args, feature, X, gnd)
 
-    # SET UP FOR MODEL TRAINING
-    pos_num = len(adj.indices)
-    neg_num = n_nodes * n_nodes - pos_num
 
-    up_eta = (args.upth_ed - args.upth_st) / (args.epochs / args.update)
-    low_eta = (args.lowth_ed - args.lowth_st) / (args.epochs / args.update)
+def train(args, feature, X, gnd, save_location):
+    """
+    Model training
+    :param args: cli arguments
+    :param feature: original feature matrix
+    :param X: the smoothed matrix
+    :param gnd: ground truth labels
+    """
+    m = len(np.unique(gnd)) # number of clusters according to ground truth
+    Cluster = KMeans(n_clusters=m)
 
-    pos_inds, neg_inds = update_similarity(normalize(feature), args.upth_st, args.lowth_st)
-    upth, lowth = update_threshold(args.upth_st, args.lowth_st, up_eta, low_eta)
+    # cluster for initial values
+    db, _, _, _, _, _ = clustering(Cluster, X, gnd)
+    best_cl = db
 
-    batch_size = min(args.batch_size, len(pos_inds))
-
-    # MODEL
-    model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
     optimizer = Adam(lr=args.learning_rate)
-    loss_fn = MeanSquaredError()
+    cc = CMetricsTraceCallback(args.upd, best_cl, Cluster, feature, gnd)
 
-    # TRAINING
-    for epoch in range(args.epochs):
-        start, end = 0, batch_size
-        batch_num = 0
-        length = len(pos_inds)
+    # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
+    print('Training model for {}-order convolution'.format(args.power))
+    if args.model == 'ae':
+        model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=optimizer, loss=MeanSquaredError())
+        if os.path.exists(save_location):
+            print('Model already exists. Loading it...')
+            model.load_weights(save_location + '/checkpoint')
+        else:
+            print('Training model for {}-order convolution...'.format(args.power))
+            model.fit(x=feature, y=X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
+    elif args.model == 'vae':
+        model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        if os.path.exists(save_location):
+            print('Model already exists. Loading it...')
+            model.load_weights(save_location + '/checkpoint')
+        else:
+            print('Training model for {}-order convolution...'.format(args.power))
+            model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
+    elif args.model == 'dvae':
+        # distort input features for denoising auto encoder
+        distorted = salt_and_pepper(feature, 0.2)
 
-        # BATCH TRAINING
-        while (end <= length):
-            negative_sample = np.random.choice(neg_inds, size=end - start) # get a sample from negative indices
-            sample_indices = np.concatenate((pos_inds[start:end], negative_sample), 0) # create training by positive and negative samples
-            sample_indices = sample_indices // n_nodes # the original array was flattened. We need to get back the original indices
-            t = time.time()
+        model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                     dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        if os.path.exists(save_location):
+            print('Model already exists. Loading it...')
+            model.load_weights(save_location + '/checkpoint')
+        else:
+            print('Training model for {}-order convolution...'.format(args.power))
+            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
+    elif args.model == 'dae':
+        # distort input features for denoising auto encoder
+        distorted = salt_and_pepper(feature, 0.2)
 
-            x_batch = feature[sample_indices, :]
-            y_batch = X[sample_indices, :]
-            with tf.GradientTape() as tape:
-                logits = model(x_batch)
-                loss_value = loss_fn(y_batch, logits)
-            grads = tape.gradient(loss_value, model.trainable_weights)
-            optimizer.apply_gradients(zip(grads, model.trainable_weights))
+        model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
+                    dropout=args.dropout)
+        model.compile(optimizer=optimizer)
+        if os.path.exists(save_location):
+            print('Model already exists. Loading it...')
+            model.load_weights(save_location + '/checkpoint')
+        else:
+            print('Training model for {}-order convolution...'.format(args.power))
+            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
+    else:
+        return
 
-            # update indices for batch sampling
-            start = end
-            batch_num += 1
-            if end < length and end + batch_size >= length:
-                end += length - end
+    if not os.path.exists(save_location) and args.save:
+        os.makedirs(save_location)
+        model.save_weights(save_location + '/checkpoint')
+
+    if not os.path.exists(save_location):
+        tqdm.write("Optimization Finished!")
+        tqdm.write(
+            "BestDB: {} BestACC: {} BestNMI: {} BestARI: {}  Epoch: {}".format(cc.best_db, cc.best_acc, cc.best_nmi,
+                                                                               cc.best_ari, cc.best_epoch))
+        best_acc = cc.best_acc
+        best_nmi = cc.best_nmi
+        best_f1 = cc.best_f1
+        best_ari = cc.best_ari
+        best_centers = cc.cluster_centers
+
+    return model, best_centers, best_acc, best_nmi, best_f1, best_ari
+
+
+def retrain(args, feature, X, model, centers, ari, gnd):
+    """
+    Self-supervision
+    :param args: cli arguments
+    :param feature: original feature matrix
+    :param X: the smoothed matrix
+    :param model: the pretrained model
+    :param centers: cluster centers using the embeddings of the pretrained model
+    :param ari: adjusted rand index. Metric to optimize
+    :param gnd: ground truth labels
+    """
+    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+    optimizer = Adam(lr=args.learning_rate)
+
+    iteration = 0
+    if args.c_epochs != 0:
+        while True:
+            # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
+            iteration += 1
+
+            model = ClusterBooster(model, centers)
+            model.compile(optimizer=optimizer)
+            if args.model == 'ae' or args.model == 'vae':
+                model.fit(feature, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es],
+                          verbose=0)
+            else:  # dae or dvae
+                distorted = salt_and_pepper(feature, 0.2)
+                model.fit(distorted, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es],
+                          verbose=0)
+
+            embeds = model.embed(feature)
+
+            kmeans = KMeans(n_clusters=len(centers)).fit(embeds)
+            predict_labels = kmeans.predict(embeds)
+            # new_dist = square_dist(predict_labels, feature)
+
+            cm = clustering_metrics(gnd, predict_labels)
+            ac, nm, f1, new_ari = cm.evaluationClusterModelFromLabel()
+
+            if new_ari < ari:
+                break
             else:
-                end += batch_size
+                ari = new_ari
 
-        # EVALUATION THROUGH CLUSTERING
-        if (epoch + 1) % args.update == 0:
-            z = model.embed(feature)
-            z_numpy = [e.numpy() for e in z]
-            upth, lowth = update_threshold(upth, lowth, up_eta, low_eta)
-            pos_inds, neg_inds = update_similarity(z_numpy, upth, lowth)
-            batch_size = min(args.batch_size, len(pos_inds))
+            print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   ari: {}'.format(new_ari),
+                  'acc: {}'.format(ac),
+                  'nmi: {}'.format(nm),
+                  'f1: {}'.format(f1))
 
-            tqdm.write("Epoch: {}, train_loss={:.5f}, time={:.5f}".format(epoch + 1, loss_value, time.time() - t))
-            db, acc, nmi, f1, ari = clustering(Cluster, z_numpy, labels)
-            tqdm.write("Davies-Bouldin={}  Acc={} NMI={} ARI={} \n".format(db, acc, nmi, ari))
-            if db >= best_db:
-                best_db = db
-                best_acc = acc
-                best_nmi = nmi
-                best_f1 = f1
-                best_ari = ari
-
-                best_z = z_numpy
-
-    tqdm.write("Optimization Finished!")
-    tqdm.write('best_acc: {}, best_nmi: {}, best_ari: {}'.format(best_acc, best_nmi, best_ari))
-
-    if args.save:
-        write_results(args, best_acc, best_nmi, best_f1, best_ari)
-        save_results(args, best_z)
-
-    # tsne(embeds, gnd, args)
+    return model, embeds, predict_labels, ac, nm, f1, new_ari
 
 
 def write_results(args, ac, nm, f1, ari):

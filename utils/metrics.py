@@ -3,6 +3,7 @@ from sklearn import metrics
 from munkres import Munkres
 import numpy as np
 import scipy.sparse as sp
+from sklearn.metrics import roc_auc_score, average_precision_score
 
 
 def masked_softmax_cross_entropy(preds, labels, mask):
@@ -42,6 +43,7 @@ def masked_accuracy(preds, labels, mask):
     mask /= tf.reduce_mean(mask)
     accuracy_all *= mask
     return tf.reduce_mean(accuracy_all)
+
 
 class clustering_metrics():
     def __init__(self, true_label, predict_label):
@@ -102,12 +104,14 @@ class clustering_metrics():
 
         return acc, nmi, f1_macro, adjscore
 
+
 def to_onehot(prelabel):
     k = len(np.unique(prelabel))
     label = np.zeros([prelabel.shape[0], k])
     label[range(prelabel.shape[0]), prelabel] = 1
     label = label.T
     return label
+
 
 def square_dist(prelabel, feature):
     if sp.issparse(feature):
@@ -128,3 +132,40 @@ def square_dist(prelabel, feature):
     intra_dist = pdist2.trace()
     intra_dist /= m
     return intra_dist
+
+
+def get_roc_score(emb, adj_orig, edges_pos, edges_neg):
+    def sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+
+    # Predict on test set of edges
+    adj_rec = np.dot(emb, emb.T)
+    preds = []
+    pos = []
+    for e in edges_pos:
+        preds.append(sigmoid(adj_rec[e[0], e[1]]))
+        pos.append(adj_orig[e[0], e[1]])
+
+    preds_neg = []
+    neg = []
+    for e in edges_neg:
+        preds_neg.append(sigmoid(adj_rec[e[0], e[1]]))
+        neg.append(adj_orig[e[0], e[1]])
+
+    preds_all = np.hstack([preds, preds_neg])
+    labels_all = np.hstack([np.ones(len(preds)), np.zeros(len(preds))])
+    roc_score = roc_auc_score(labels_all, preds_all)
+    ap_score = average_precision_score(labels_all, preds_all)
+
+    return roc_score, ap_score
+
+def clustering(Cluster, feature, true_labels):
+    f_adj = np.matmul(feature, np.transpose(feature))
+    predict_labels = Cluster.fit_predict(f_adj)
+    # predict_labels = Cluster.fit_predict(feature)
+    cm = clustering_metrics(true_labels, predict_labels)
+    db = -metrics.davies_bouldin_score(f_adj, predict_labels)
+    # db = -metrics.davies_bouldin_score(feature, predict_labels)
+    acc, nmi, f1_macro, adjscore = cm.evaluationClusterModelFromLabel()
+
+    return db, acc, nmi, f1_macro, adjscore, Cluster.cluster_centers_

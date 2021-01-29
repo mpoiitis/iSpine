@@ -8,6 +8,7 @@ import pickle as pkl
 import sys
 import networkx as nx
 import tensorflow as tf
+import matplotlib.pyplot as plt
 
 
 def parse_index_file(filename):
@@ -112,7 +113,6 @@ def load_wiki():
         yind.append(int(line[1]))
         adj.append([int(line[0]), int(line[1])])
     f.close()
-    ##print(len(adj))
 
     f = open('data/wiki/group.txt', 'r')
     label = []
@@ -180,19 +180,32 @@ def sparse_to_tuple(sparse_mx):
     return sparse_mx
 
 
-def normalize_adj(adj):
+def normalize_adj(adj, type='sym'):
     """Symmetrically normalize adjacency matrix."""
-    adj = sp.coo_matrix(adj)
-    rowsum = np.array(adj.sum(1))
-    d_inv_sqrt = np.power(rowsum, -0.5).flatten()
-    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
-    d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
-    return adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
+    if type == 'sym':
+        adj = sp.coo_matrix(adj)
+        rowsum = np.array(adj.sum(1))
+        # d_inv_sqrt = np.power(rowsum, -0.5)
+        # d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+        # return adj*d_inv_sqrt*d_inv_sqrt.flatten()
+        d_inv_sqrt = np.power(rowsum, -0.5).flatten()
+        d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+        d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
+        return d_mat_inv_sqrt.dot(adj).dot(d_mat_inv_sqrt).tocoo()
+    elif type == 'rw':
+        rowsum = np.array(adj.sum(1))
+        d_inv = np.power(rowsum, -1.0).flatten()
+        d_inv[np.isinf(d_inv)] = 0.
+        d_mat_inv = sp.diags(d_inv)
+        adj_normalized = d_mat_inv.dot(adj)
+        return adj_normalized
 
 
-def preprocess_adj(adj):
+def preprocess_adj(adj, type='sym', loop=True):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
-    adj_normalized = normalize_adj(adj + sp.eye(adj.shape[0]))
+    if loop:
+        adj = adj + sp.eye(adj.shape[0])
+    adj_normalized = normalize_adj(adj, type=type)
     return adj_normalized
 
 
@@ -230,15 +243,15 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     return torch.sparse.FloatTensor(indices, values, shape)
 
 
-def save_results(args, result, node_dict=None):
+def save_results(args, output, result, node_dict=None):
     """
     Save the embeddings to file
     :param args: CLI arguments
+    :param output: the output location to save results
     :param result: the embeddings
     :param node_dict: if given it maps the node indices to the actual node names
     """
-    # add initial node string name as the first column of the embedding
-    print('Saving embeddings to location', args.output)
+    print('Saving embeddings to location', output)
     print('Number of embeddings', len(result))
     list_with_index = list()
     for i, embedding in enumerate(result):
@@ -255,7 +268,7 @@ def save_results(args, result, node_dict=None):
     else:
         columns = ["id"] + ["X_" + str(dim) for dim in range(args.dimension)]
     df = pd.DataFrame(list_with_index, columns=columns)
-    df.to_csv(args.output, index=None)
+    df.to_csv(output, index=None)
 
 
 def mask_test_edges(adj):
@@ -340,6 +353,33 @@ def mask_test_edges(adj):
     return adj_train, train_edges, val_edges, val_edges_false, test_edges, test_edges_false
 
 
+def preprocess_graph(adj, layer, norm='sym', renorm=True):
+    adj = sp.coo_matrix(adj)
+    ident = sp.eye(adj.shape[0])
+    if renorm:
+        adj_ = adj + ident
+    else:
+        adj_ = adj
+
+    rowsum = np.array(adj_.sum(1))
+
+    if norm == 'sym':
+        degree_mat_inv_sqrt = sp.diags(np.power(rowsum, -0.5).flatten())
+        adj_normalized = adj_.dot(degree_mat_inv_sqrt).transpose().dot(degree_mat_inv_sqrt).tocoo()
+        laplacian = ident - adj_normalized
+    elif norm == 'left':
+        degree_mat_inv_sqrt = sp.diags(np.power(rowsum, -1.).flatten())
+        adj_normalized = degree_mat_inv_sqrt.dot(adj_).tocoo()
+        laplacian = ident - adj_normalized
+
+    reg = [2 / 3] * (layer)
+
+    adjs = []
+    for i in range(len(reg)):
+        adjs.append(ident - (reg[i] * laplacian))
+    return adjs
+
+
 def preprocess_adj_bias(adj):
     num_nodes = adj.shape[0]
     adj = adj + sp.eye(num_nodes)  # self-loop
@@ -398,3 +438,38 @@ def largest_eigval_smoothing_filter(adj):
 
     h = ident - laplacian.multiply(1 / largest_eigval)
     return h
+
+
+def decompose(adj, dataset, norm='sym', renorm=True):
+    adj = sp.coo_matrix(adj)
+    ident = sp.eye(adj.shape[0])
+    if renorm:
+        adj_ = adj + ident
+    else:
+        adj_ = adj
+
+    rowsum = np.array(adj_.sum(1))
+
+    if norm == 'sym':
+        degree_mat_inv_sqrt = sp.diags(np.power(rowsum, -0.5).flatten())
+        adj_normalized = adj_.dot(degree_mat_inv_sqrt).transpose().dot(degree_mat_inv_sqrt).tocoo()
+        laplacian = ident - adj_normalized
+    evalue, evector = np.linalg.eig(laplacian.toarray())
+    np.save(dataset + ".npy", evalue)
+    print(max(evalue))
+    exit(1)
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    n, bins, patches = ax.hist(evalue, 50, facecolor='g')
+    plt.xlabel('Eigenvalues')
+    plt.ylabel('Frequency')
+    fig.savefig("eig_renorm_" + dataset + ".png")
+
+
+def laplacian(adj):
+    rowsum = np.array(adj.sum(1))
+    degree_mat = sp.diags(rowsum.flatten())
+    lap = degree_mat - adj
+    return torch.FloatTensor(lap.toarray())
+
+

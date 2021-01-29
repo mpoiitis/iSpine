@@ -20,6 +20,7 @@ def tsne(embeds, gnd, args):
                                                                                args.hidden), format='png')
     plt.show()
 
+
 def plot_results(config, pivot='Learning Rate'):
 
     filepath = 'figures/mymethod/{}'.format(config['Model'])
