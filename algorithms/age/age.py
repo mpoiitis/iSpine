@@ -75,7 +75,7 @@ def run_age(args):
     X = h_k.dot(sm_fea_s)
 
 
-    db, _, _, _, _, _ = clustering(Cluster, X, gnd)
+    db, _, _, _, _, _ = clustering(Cluster, X, gnd, age=True)
     best_cl = db
 
     model = LinTrans(args.linlayers, dims)
@@ -154,7 +154,7 @@ def run_age(args):
             tqdm.write("Epoch: {}, train_loss_gae={:.5f}, time={:.5f}".format(
                 epoch + 1, cur_loss, time.time() - t))
 
-            db, acc, nmi, adjscore = clustering(Cluster, hidden_emb, gnd)
+            db, acc, nmi, adjscore = clustering(Cluster, hidden_emb, gnd, age=True)
             tqdm.write("DB: {} ACC: {} NMI: {} ARI: {}".format(db, acc, nmi, adjscore))
             if db >= best_cl:
                 best_cl = db

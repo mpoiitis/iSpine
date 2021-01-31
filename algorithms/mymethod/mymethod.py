@@ -4,7 +4,7 @@ import numpy as np
 import scipy.sparse as sp
 from tqdm import tqdm
 from sklearn.cluster import KMeans
-from utils.metrics import clustering_metrics, clustering
+from utils.metrics import clustering
 from utils.utils import load_data_trunc
 import tensorflow as tf
 from .models import DAE, DVAE, AE, VAE, ClusterBooster
@@ -22,7 +22,12 @@ class CMetricsTraceCallback(tf.keras.callbacks.Callback):
         self.Cluster = Cluster
         self.feature = feature
         self.gnd = gnd
-        self.best_epoch = 0
+
+        self.best_acc = -1
+        self.best_nmi = -1
+        self.best_f1 = -1
+        self.best_ari = -1
+        self.best_epoch = -1
         self.cluster_centers = self.Cluster.cluster_centers_
 
     def on_epoch_begin(self, epoch, logs=None):
@@ -44,18 +49,38 @@ def mymethod(args, feature, X, gnd):
     save_location = 'output/{}_{}_{}_power{}_epochs{}_hidden{}_dimension{}-batch{}-lr{}-drop{}'.format(args.input, args.method,
         args.model, args.power, args.epochs, args.hidden, args.dimension, args.batch_size, args.learning_rate, args.dropout)
 
-    not_exists = True if not os.path.exists(save_location) else False # used to write metrics when the model is trained
-    # TRAIN WITHOUT CLUSTER LABELS
-    model, centers, acc, nmi, f1, ari = train(args, feature, X, gnd, save_location)
+    # CREATE MODEL
+    if args.model == 'ae':
+        model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=Adam(lr=args.learning_rate), loss=MeanSquaredError())
+    elif args.model == 'vae':
+        model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=Adam(lr=args.learning_rate))
+    elif args.model == 'dae':
+        model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=Adam(lr=args.learning_rate))
+    else:
+        model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=Adam(lr=args.learning_rate))
 
-    # # TRAIN WITH CLUSTER LABELS ITERATIVELY
-    # model, embeds, predict_labels, acc, nmi, f1, ari = retrain(args, feature, X, model, centers, ari, gnd)
+    # TRAINING OR LOAD MODEL IF IT EXISTS
+    if not os.path.exists(save_location):
+        # TRAINING
+        model, centers, acc, nmi, f1, ari = train(args, feature, X, gnd, model)
 
-    if args.save:
-        if not_exists:
+        # SELF-SUPERVISION
+        if args.c_epochs:
+            model, acc, nmi, f1, ari = self_supervise(args, feature, X, gnd, model, centers)
+        if args.save:
+            os.makedirs(save_location)
+            model.save_weights(save_location + '/checkpoint')
             write_results(args, acc, nmi, f1, ari)
+    else:
+        print('Model already exists. Loading it...')
+        model.load_weights(save_location + '/checkpoint')
 
-        # save embeddings
+    # SAVE EMBEDDINGS
+    if args.save:
         embeds = model.embed(feature)
         embeds_to_save = [e.numpy() for e in embeds]
         save_results(args, save_location, embeds_to_save)
@@ -89,142 +114,99 @@ def run_mymethod(args):
         mymethod(args, feature, X, gnd)
 
 
-def train(args, feature, X, gnd, save_location):
+def train(args, feature, X, gnd, model):
     """
     Model training
     :param args: cli arguments
     :param feature: original feature matrix
     :param X: the smoothed matrix
     :param gnd: ground truth labels
+    :param model: the nn to be trained
     """
+
+    # INITIAL CLUSTERING
     m = len(np.unique(gnd)) # number of clusters according to ground truth
     Cluster = KMeans(n_clusters=m)
-
-    # cluster for initial values
     db, _, _, _, _, _ = clustering(Cluster, X, gnd)
     best_cl = db
 
-    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-    optimizer = Adam(lr=args.learning_rate)
-    cc = CMetricsTraceCallback(args.upd, best_cl, Cluster, feature, gnd)
+    # ADD NOISE IN CASE OF DENOISING MODELS
+    if args.model == 'ae' or args.model == 'vae':
+        input = feature
+    else:
+        input = salt_and_pepper(feature, 0.2)
 
+    # CALLBACKS
+    es = EarlyStopping(monitor='loss', patience=args.early_stopping)
+    cc = CMetricsTraceCallback(args.upd, best_cl, Cluster, input, gnd)
+
+    # TRAINING
     # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
     print('Training model for {}-order convolution'.format(args.power))
-    if args.model == 'ae':
-        model = AE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-        model.compile(optimizer=optimizer, loss=MeanSquaredError())
-        if os.path.exists(save_location):
-            print('Model already exists. Loading it...')
-            model.load_weights(save_location + '/checkpoint')
-        else:
-            print('Training model for {}-order convolution...'.format(args.power))
-            model.fit(x=feature, y=X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
-    elif args.model == 'vae':
-        model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-        model.compile(optimizer=optimizer)
-        if os.path.exists(save_location):
-            print('Model already exists. Loading it...')
-            model.load_weights(save_location + '/checkpoint')
-        else:
-            print('Training model for {}-order convolution...'.format(args.power))
-            model.fit(feature, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
-    elif args.model == 'dvae':
-        # distort input features for denoising auto encoder
-        distorted = salt_and_pepper(feature, 0.2)
+    model.fit(input, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
 
-        model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
-                     dropout=args.dropout)
-        model.compile(optimizer=optimizer)
-        if os.path.exists(save_location):
-            print('Model already exists. Loading it...')
-            model.load_weights(save_location + '/checkpoint')
-        else:
-            print('Training model for {}-order convolution...'.format(args.power))
-            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
-    elif args.model == 'dae':
-        # distort input features for denoising auto encoder
-        distorted = salt_and_pepper(feature, 0.2)
+    # REPORTING
+    tqdm.write("Optimization Finished!")
+    tqdm.write("BestDB: {} BestACC: {} BestNMI: {} BestARI: {}  Epoch: {}".format(cc.best_db, cc.best_acc, cc.best_nmi,
+                                                                           cc.best_ari, cc.best_epoch))
+    best_acc = cc.best_acc
+    best_nmi = cc.best_nmi
+    best_f1 = cc.best_f1
+    best_ari = cc.best_ari
+    best_centers = cc.cluster_centers
 
-        model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1],
-                    dropout=args.dropout)
-        model.compile(optimizer=optimizer)
-        if os.path.exists(save_location):
-            print('Model already exists. Loading it...')
-            model.load_weights(save_location + '/checkpoint')
-        else:
-            print('Training model for {}-order convolution...'.format(args.power))
-            model.fit(distorted, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
-    else:
-        return
-
-    if not os.path.exists(save_location) and args.save:
-        os.makedirs(save_location)
-        model.save_weights(save_location + '/checkpoint')
-
-    if not os.path.exists(save_location):
-        tqdm.write("Optimization Finished!")
-        tqdm.write(
-            "BestDB: {} BestACC: {} BestNMI: {} BestARI: {}  Epoch: {}".format(cc.best_db, cc.best_acc, cc.best_nmi,
-                                                                               cc.best_ari, cc.best_epoch))
-        best_acc = cc.best_acc
-        best_nmi = cc.best_nmi
-        best_f1 = cc.best_f1
-        best_ari = cc.best_ari
-        best_centers = cc.cluster_centers
+    if cc.best_epoch == -1:
+        raise Exception('Training did not improve clustering. Aborting method.')
 
     return model, best_centers, best_acc, best_nmi, best_f1, best_ari
 
 
-def retrain(args, feature, X, model, centers, ari, gnd):
+def self_supervise(args, feature, X, gnd, model, centers):
     """
-    Self-supervision
+    Self-supervision using KL loss
     :param args: cli arguments
     :param feature: original feature matrix
     :param X: the smoothed matrix
+    :param gnd: ground truth labels
     :param model: the pretrained model
     :param centers: cluster centers using the embeddings of the pretrained model
-    :param ari: adjusted rand index. Metric to optimize
-    :param gnd: ground truth labels
     """
+    # INITIAL CLUSTERING
+    m = len(np.unique(gnd))  # number of clusters according to ground truth
+    Cluster = KMeans(n_clusters=m)
+    db, _, _, _, _, _ = clustering(Cluster, X, gnd)
+    best_cl = db
+
+    # ADD NOISE IN CASE OF DENOISING MODELS
+    if args.model == 'ae' or args.model == 'vae':
+        input = feature
+    else:
+        input = salt_and_pepper(feature, 0.2)
+
+    # CALLBACKS
     es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-    optimizer = Adam(lr=args.learning_rate)
+    cc = CMetricsTraceCallback(args.upd, best_cl, Cluster, input, gnd)
 
-    iteration = 0
-    if args.c_epochs != 0:
-        while True:
-            # repeat cluster boosting as long as the model is getting better with respect to intra cluster distance
-            iteration += 1
 
-            model = ClusterBooster(model, centers)
-            model.compile(optimizer=optimizer)
-            if args.model == 'ae' or args.model == 'vae':
-                model.fit(feature, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es],
-                          verbose=0)
-            else:  # dae or dvae
-                distorted = salt_and_pepper(feature, 0.2)
-                model.fit(distorted, X, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es],
-                          verbose=0)
+    # CREATE MODEL
+    model = ClusterBooster(model, centers)
+    model.compile(optimizer=Adam(lr=args.learning_rate))
 
-            embeds = model.embed(feature)
+    # TRAIN
+    print('Self-supervision started')
+    model.fit(input, epochs=args.c_epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, cc], verbose=1)
 
-            kmeans = KMeans(n_clusters=len(centers)).fit(embeds)
-            predict_labels = kmeans.predict(embeds)
-            # new_dist = square_dist(predict_labels, feature)
+    # REPORTING
+    tqdm.write("Optimization Finished!")
+    tqdm.write(
+        "BestDB: {} BestACC: {} BestNMI: {} BestARI: {}  Epoch: {}".format(cc.best_db, cc.best_acc, cc.best_nmi,
+                                                                           cc.best_ari, cc.best_epoch))
+    best_acc = cc.best_acc
+    best_nmi = cc.best_nmi
+    best_f1 = cc.best_f1
+    best_ari = cc.best_ari
 
-            cm = clustering_metrics(gnd, predict_labels)
-            ac, nm, f1, new_ari = cm.evaluationClusterModelFromLabel()
-
-            if new_ari < ari:
-                break
-            else:
-                ari = new_ari
-
-            print('Power: {}'.format(args.power), 'Iteration: {}'.format(iteration), '   ari: {}'.format(new_ari),
-                  'acc: {}'.format(ac),
-                  'nmi: {}'.format(nm),
-                  'f1: {}'.format(f1))
-
-    return model, embeds, predict_labels, ac, nm, f1, new_ari
+    return model, best_acc, best_nmi, best_f1, best_ari
 
 
 def write_results(args, ac, nm, f1, ari):
@@ -240,4 +222,3 @@ def write_results(args, ac, nm, f1, ari):
                          'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
                          'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
                          'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'ARI': ari})
-

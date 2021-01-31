@@ -159,13 +159,15 @@ def get_roc_score(emb, adj_orig, edges_pos, edges_neg):
 
     return roc_score, ap_score
 
-def clustering(Cluster, feature, true_labels):
-    f_adj = np.matmul(feature, np.transpose(feature))
+
+def clustering(Cluster, feature, true_labels, age=False):
+    if age:
+        f_adj = np.matmul(feature, np.transpose(feature))
+    else:
+        f_adj = feature
     predict_labels = Cluster.fit_predict(f_adj)
-    # predict_labels = Cluster.fit_predict(feature)
     cm = clustering_metrics(true_labels, predict_labels)
     db = -metrics.davies_bouldin_score(f_adj, predict_labels)
-    # db = -metrics.davies_bouldin_score(feature, predict_labels)
     acc, nmi, f1_macro, adjscore = cm.evaluationClusterModelFromLabel()
 
     return db, acc, nmi, f1_macro, adjscore, Cluster.cluster_centers_

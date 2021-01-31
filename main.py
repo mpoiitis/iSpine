@@ -109,7 +109,7 @@ def parse_args():
     mymethod_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
     mymethod_parser.add_argument("--batch-size", default=100, type=int, help="Size of the batch used for training. Default is 100.")
     mymethod_parser.add_argument("--epochs", default=500, type=int, help="Number of epochs. Default is 500.")
-    mymethod_parser.add_argument("--c-epochs", default=500, type=int, help="Number of epochs for Cluster Booster. If None, cluster boosting won't be applied. Default is 500.")
+    mymethod_parser.add_argument("--c-epochs", default=None, type=int, help="Number of epochs for Cluster Booster. If None, cluster boosting won't be applied. Default is None.")
     mymethod_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
     mymethod_parser.add_argument("--power", default=8, type=int, help="The upper bound of convolution order to search, Default is 8.")
     mymethod_parser.add_argument('--upd', type=int, default=10, help='Update epoch.')

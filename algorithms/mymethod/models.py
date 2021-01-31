@@ -1,8 +1,8 @@
 import tensorflow as tf
-import numpy as np
 
 loss_tracker = tf.keras.metrics.Mean(name="loss")
 mse_metric = tf.keras.metrics.MeanSquaredError(name="mse")
+
 
 class VAE(tf.keras.Model):
     def __init__(self, hidden1_dim, hidden2_dim, output_dim, dropout):
@@ -244,11 +244,11 @@ class DAE(tf.keras.Model):
             tf.keras.layers.Dense(self.output_dim, activation=tf.nn.sigmoid),
         ])
 
-    def train_step(self, data):
+    def train_step(self, data, training=True):
         x, y = data
 
         with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)  # Forward pass
+            y_pred = self(x, training=training)  # Forward pass
             # Compute our own loss
             loss = self.compute_loss(x, y)
 
@@ -287,74 +287,55 @@ class DAE(tf.keras.Model):
 
 class ClusterBooster(tf.keras.Model):
     """
-    This module utilizes the pretrained neural network alongside the cluster assignments to further optimize the model
-    Specifically its loss function contains a second part, apart from the pretrained model's loss, which is the minimization
-    of KL-Divergence between a soft-clustering assignment distribution q and the target distribution p
+    This module utilizes the cluster assignments to further optimize the model
+    Specifically its loss function contains the minimization of KL-Divergence between a soft-clustering assignment
+    distribution q and the target distribution p
     """
     def __init__(self, base_model, centers):
         super(ClusterBooster, self).__init__()
 
         self.pretrained = base_model
-        self.centers = centers
+        self.centers = tf.Variable(initial_value=centers, trainable=True, dtype=tf.float32)
 
 
     def train_step(self, data):
-        x, y = data
-
         with tf.GradientTape() as tape:
-            y_pred = self.pretrained(x, training=True)  # Forward pass
-            # Compute the original loss
-            if self.pretrained.name == 'dae' or self.pretrained.name == 'dvae':
-                original_loss = self.pretrained.compute_loss(x, y)
-            elif self.pretrained.name == 'vae':
-                original_loss = self.pretrained.compute_loss(x)
-            else:  # ae
-                mse = tf.keras.losses.MeanSquaredError()
-                original_loss = mse(y, y_pred)
+            # Compute the loss value. Note that the model is optimized according to the new loss only (KL-loss).
+            # If a joint optimization of the kl-loss and the original mse loss is needed, it has to be implemented here
+            # Also note that P and Q distributions are calculated via callback, on epoch begin.
 
-            # add the KL-divergence loss according to cluster assignments
-            kl_loss = self.compute_loss(x)
-            loss = original_loss + kl_loss
+            z = self.pretrained.encoder(data)
+            z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
+            # UPDATE Q EVERY EPOCH
+            partial = tf.math.pow(tf.norm(z - self.centers, axis=2, ord='euclidean'), 2)
+            nominator = 1 / (1 + partial)
+            denominator = tf.math.reduce_sum(1 / (1 + partial))
+            self.Q = nominator / denominator
+
+            partial = tf.math.pow(self.Q, 2) / tf.math.reduce_sum(self.Q, axis=1, keepdims=True)
+            nominator = partial
+            denominator = tf.math.reduce_sum(partial, axis=0)
+            self.P = nominator / denominator
+
+
+            loss = tf.reduce_sum(self.P * tf.math.log(self.P / self.Q))
 
         # Compute gradients
-        gradients = tape.gradient(loss, self.trainable_variables)
-
+        gradients = tape.gradient(loss, self.pretrained.encoder.trainable_variables + [self.centers])
         # Update weights
-        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        self.optimizer.apply_gradients(zip(gradients, self.pretrained.encoder.trainable_variables + [self.centers]))
 
-        # Compute our own metrics
         loss_tracker.update_state(loss)
-        mse_metric.update_state(y, y_pred)
-        return {"loss": loss_tracker.result(), "mse": mse_metric.result()}
+        return {m.name: m.result() for m in self.metrics}
 
-    def compute_loss(self, x):
-        z = self.pretrained.embed(x)
-
-        z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]]) # reshape for broadcasting
-
-        partial = tf.norm(z - self.centers, axis=2, ord='euclidean')
-        nominator = 1 / (1 + partial)
-        denominator = tf.math.reduce_sum(1/ (1 + partial))
-        self.Q = nominator / denominator
-
-
-        partial =  tf.math.pow(self.Q, 2) / tf.math.reduce_sum(self.Q, axis=1, keepdims=True)
-        nominator = partial
-        denominator = tf.math.reduce_sum(partial, axis=0)
-        P = nominator / denominator
-
-        kl = tf.keras.losses.KLDivergence()
-
-        return kl(P, self.Q)
 
     @property
     def metrics(self):
 
-        return [loss_tracker, mse_metric]
+        return [loss_tracker]
 
     def embed(self, x):
         z = self.pretrained.embed(x)
-
         return z
 
     def call(self, x):
@@ -363,4 +344,3 @@ class ClusterBooster(tf.keras.Model):
 
 def lrelu(x, leak=0.2, name="lrelu"):
     return tf.maximum(x, leak * x)
-
