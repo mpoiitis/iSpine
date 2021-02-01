@@ -98,25 +98,31 @@ class VAE(tf.keras.Model):
 
 
 class AE(tf.keras.Model):
-    def __init__(self, hidden1_dim, hidden2_dim, output_dim, dropout):
+    def __init__(self, layers, dims, output_dim, dropout):
         super(AE, self).__init__()
-        self.hidden1_dim = hidden1_dim
-        self.hidden2_dim = hidden2_dim
-        self.output_dim = output_dim
-        self.dropout = dropout
 
-        self.encoder = tf.keras.Sequential([
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.hidden1_dim, activation=lrelu),
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.hidden2_dim, activation=tf.nn.sigmoid),
-            tf.keras.layers.Dropout(self.dropout)
-        ])
-        self.decoder = tf.keras.Sequential([
-            tf.keras.layers.Dense(self.hidden1_dim, activation=lrelu),
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.output_dim, activation=tf.nn.sigmoid),
-        ])
+        encoder_layers = list()
+        for i in range(layers):
+            encoder_layers.append(tf.keras.layers.Dropout(dropout))
+            if i != layers - 1:
+                activation = lrelu
+            else:
+                activation = tf.nn.sigmoid
+            encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
+
+        dims.reverse()
+        decoder_layers = list()
+        for i in range(1, layers + 1):
+            decoder_layers.append(tf.keras.layers.Dropout(dropout))
+            if i != layers:
+                activation = lrelu
+                decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
+            else:
+                activation = tf.nn.sigmoid
+                decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation))
+
+        self.encoder = tf.keras.Sequential(encoder_layers)
+        self.decoder = tf.keras.Sequential(decoder_layers)
 
     def call(self, x):
         encoded = self.encoder(x)
@@ -317,9 +323,7 @@ class ClusterBooster(tf.keras.Model):
             denominator = tf.math.reduce_sum(partial, axis=0)
             self.P = nominator / denominator
 
-
-            loss = tf.reduce_sum(self.P * tf.math.log(self.P / self.Q))
-
+            loss = self.compiled_loss(self.P, self.Q)
         # Compute gradients
         gradients = tape.gradient(loss, self.pretrained.encoder.trainable_variables + [self.centers])
         # Update weights
