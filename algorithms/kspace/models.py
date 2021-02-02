@@ -190,4 +190,4 @@ class ClusterBooster(tf.keras.Model):
 
 
 def lrelu(x, leak=0.2, name="lrelu"):
-    return tf.maximum(x, leak * x)
+    return tf.math.maximum(x, leak * x)
