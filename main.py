@@ -103,8 +103,6 @@ def parse_args():
     kSpace_parser = embedding_subparsers.add_parser('kspace', help='kSPACE algorithm')
     kSpace_parser.add_argument("--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
     kSpace_parser.add_argument("--model", default='ae', type=str, choices=['ae', 'vae', 'dae', 'dvae'], help="Type of autoencoder. Simple, variational or denoising. Default is ae.")
-    kSpace_parser.add_argument("--dimension", default=100, type=int, help="Embedding dimension. Default is 100.")
-    kSpace_parser.add_argument('--layers', type=int, default=2, help="Number of hidden layers. Default is 2. Must match the number of --dims list items")
     kSpace_parser.add_argument('--dims', nargs='+', type=int, default=[200, 100], help='Number of units in hidden layers. Default is [200, 100]. Example --dims 500 200')
     kSpace_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
     kSpace_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
@@ -147,6 +145,8 @@ if __name__ == "__main__":
         run_gat(args)
     elif args.method == 'kspace':
         run_kspace(args)
+        # from algorithms.kspace.kspace import run_kspace_grid_search
+        # run_kspace_grid_search()
     elif args.method == 'age':
         run_age(args)
     else:

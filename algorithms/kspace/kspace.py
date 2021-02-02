@@ -13,9 +13,53 @@ from tensorflow.keras.losses import MeanSquaredError, KLDivergence
 from tensorflow.keras.callbacks import EarlyStopping
 from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
 
-SEED = 42
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
+
+def run_kspace_grid_search():
+    from tensorboard.plugins.hparams import api as hp
+    seed = 123
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+
+    adj, feature, gnd, idx_train, idx_val, idx_test = load_data_trunc("cora")
+    gnd = np.argmax(gnd, axis=1)
+    feature = feature.todense()
+    feature = feature.astype(np.float32)
+    adj = sp.coo_matrix(adj)
+    adj_normalized = preprocess_adj(adj)
+
+    h = largest_eigval_smoothing_filter(adj_normalized)
+
+    HP_POWERS = hp.HParam('power', hp.Discrete([5, 6, 7, 8]))
+    HP_BATCH = hp.HParam('batch', hp.Discrete([32, 64, 100, 200]))
+    HP_DROPOUT = hp.HParam('dropout', hp.RealInterval(0.1, 0.2))
+    HP_OPTIMIZER = hp.HParam('optimizer', hp.Discrete(['adam', 'sgd']))
+
+    session_num = 0
+    for power in HP_POWERS.domain.values:
+        for batch in HP_BATCH.domain.values:
+            for dropout_rate in (HP_DROPOUT.domain.min_value, HP_DROPOUT.domain.max_value):
+                for optimizer in HP_OPTIMIZER.domain.values:
+                    hparams = {
+                        HP_POWERS: power,
+                        HP_BATCH: batch,
+                        HP_DROPOUT: dropout_rate,
+                        HP_OPTIMIZER: optimizer,
+                    }
+                    run_name = "run-%d" % session_num
+                    print('--- Starting trial: %s' % run_name)
+                    print({h.name: hparams[h] for h in hparams})
+                    logdir = 'logs/hparam_tuning/' + run_name
+
+                    h_k = h ** hparams[HP_POWERS]
+                    X = h_k.dot(feature)
+
+                    model = AE(layers=2, dims=[200, 100], output_dim=X.shape[1], dropout=hparams[HP_DROPOUT])
+                    model.compile(optimizer=hparams[HP_OPTIMIZER], loss=MeanSquaredError())
+                    es = EarlyStopping(monitor='loss', patience=20)
+                    model.fit(feature, X, epochs=500, batch_size=hparams[HP_BATCH], shuffle=True, callbacks=[es, tf.keras.callbacks.TensorBoard(logdir), hp.KerasCallback(logdir, hparams)], verbose=1)
+                    mse = model.evaluate(feature, X)
+                    tf.summary.scalar('mse', mse, step=1)
+                    session_num += 1
 
 
 class CMetricsTraceCallback(tf.keras.callbacks.Callback):
@@ -51,19 +95,19 @@ class CMetricsTraceCallback(tf.keras.callbacks.Callback):
 
 
 def kspace(args, feature, X, gnd):
-    save_location = 'output/{}_{}_{}_power{}_epochs{}_layers{}_dims{}-batch{}-lr{}-drop{}'.format(args.input, args.method,
-        args.model, args.power, args.epochs, args.layers, ",".join([str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
+    save_location = 'output/{}_{}_{}_power{}_epochs{}_dims{}-batch{}-lr{}-drop{}'.format(args.input, args.method,
+        args.model, args.power, args.epochs, ",".join([str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
 
     # CREATE MODEL
     if args.model == 'ae':
-        model = AE(layers=args.layers, dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
+        model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
         model.compile(optimizer=Adam(lr=args.learning_rate), loss=MeanSquaredError())
-    # elif args.model == 'vae':
-    #     model = VAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-    #     model.compile(optimizer=Adam(lr=args.learning_rate))
-    # elif args.model == 'dae':
-    #     model = DAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-    #     model.compile(optimizer=Adam(lr=args.learning_rate))
+    elif args.model == 'vae':
+        model = VAE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=Adam(lr=args.learning_rate))
+    elif args.model == 'dae':
+        model = DAE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
+        model.compile(optimizer=Adam(lr=args.learning_rate), loss=MeanSquaredError())
     # else:
     #     model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
     #     model.compile(optimizer=Adam(lr=args.learning_rate))
@@ -136,7 +180,7 @@ def train(args, feature, X, gnd, model):
     if args.model == 'ae' or args.model == 'vae':
         input = feature
     else:
-        input = salt_and_pepper(feature, 0.2)
+        input = salt_and_pepper(feature)
 
     # CALLBACKS
     es = EarlyStopping(monitor='loss', patience=args.early_stopping)
@@ -186,7 +230,7 @@ def self_supervise(args, feature, X, gnd, model, centers):
     if args.model == 'ae' or args.model == 'vae':
         input = feature
     else:
-        input = salt_and_pepper(feature, 0.2)
+        input = salt_and_pepper(feature)
 
     optimizer = Adam(lr=args.learning_rate)
     loss_fn = KLDivergence()
@@ -233,7 +277,6 @@ def self_supervise(args, feature, X, gnd, model, centers):
     print("DB: {} ACC: {} F1: {} NMI: {} ARI: {}".format(db, acc, f1, nmi, ari))
 
     return model, acc, nmi, f1, ari
-
 
 
 def self_supervise_clusterBooster(args, feature, X, gnd, model, centers):

@@ -1,39 +1,41 @@
 import tensorflow as tf
+import numpy as np
 
 loss_tracker = tf.keras.metrics.Mean(name="loss")
 mse_metric = tf.keras.metrics.MeanSquaredError(name="mse")
 
 
 class VAE(tf.keras.Model):
-    def __init__(self, hidden1_dim, hidden2_dim, output_dim, dropout):
+    def __init__(self, dims, output_dim, dropout):
         super(VAE, self).__init__()
-        self.hidden1_dim = hidden1_dim
-        self.hidden2_dim = hidden2_dim
-        self.output_dim = output_dim
-        self.dropout = dropout
 
-        self.encoder = tf.keras.Sequential([
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.hidden1_dim, activation=lrelu),
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.hidden2_dim, activation=tf.nn.sigmoid),
-            tf.keras.layers.Dropout(self.dropout)
-        ])
-        self.decoder = tf.keras.Sequential([
-            tf.keras.layers.Dense(self.hidden1_dim, activation=lrelu),
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.output_dim, activation=tf.nn.sigmoid),
-        ])
+        layers = len(dims)
 
+        encoder_layers = list()
+        for i in range(layers):
+            encoder_layers.append(tf.keras.layers.Dropout(dropout))
+            if i != layers - 1:
+                activation = lrelu
+            else:
+                activation = tf.nn.sigmoid
+            encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
 
-    @tf.function
-    def sample(self, eps=None):
-        if eps is None:
-            eps = tf.random.normal(shape=(100, self.latent_dim))
-        return self.decode(eps, apply_sigmoid=True)
+        dims.reverse()
+        decoder_layers = list()
+        for i in range(1, layers + 1):
+            decoder_layers.append(tf.keras.layers.Dropout(dropout))
+            if i != layers:
+                activation = lrelu
+                decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
+            else:
+                activation = tf.nn.sigmoid
+                decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation))
 
-    def encode(self, x):
-        mean, logvar = tf.split(self.encoder(x), num_or_size_splits=2, axis=1)
+        self.encoder = tf.keras.Sequential(encoder_layers)
+        self.decoder = tf.keras.Sequential(decoder_layers)
+
+    def encode(self, x, training=True):
+        mean, logvar = tf.split(self.encoder(x, training=training), num_or_size_splits=2, axis=1)
         return mean, logvar
 
     def reparameterize(self, mean, logvar):
@@ -53,8 +55,6 @@ class VAE(tf.keras.Model):
         x, y = data
 
         with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)  # Forward pass
-            # Compute our own loss
             loss = self.compute_loss(x)
 
         # Compute gradients
@@ -63,43 +63,44 @@ class VAE(tf.keras.Model):
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
-        # Compute our own metrics
         loss_tracker.update_state(loss)
-        mse_metric.update_state(y, y_pred)
-        return {"loss": loss_tracker.result(), "mse": mse_metric.result()}
+        return {"loss": loss_tracker.result()}
+
+    def log_normal_pdf(self, sample, mean, logvar, raxis=1):
+        log2pi = tf.math.log(2. * np.pi)
+        return tf.math.reduce_sum(
+            -.5 * ((sample - mean) ** 2. * tf.math.exp(-logvar) + logvar + log2pi),
+            axis=raxis)
 
     def compute_loss(self, x):
+        """
+        Minimize ELBO on the marginal log-likelihood
+        :param x:
+        :return:
+        """
         mean, logvar = self.encode(x)
         z = self.reparameterize(mean, logvar)
         x_logit = self.decode(z)
 
         cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(logits=x_logit, labels=x)
-        kl_loss = -0.5 * tf.reduce_mean(logvar - tf.square(mean) - tf.exp(logvar) + 1)
-        return cross_ent + kl_loss
 
-    @property
-    def metrics(self):
-        """ We list our `Metric` objects here so that `reset_states()` can be
-            called automatically at the start of each epoch
-            or at the start of `evaluate()`.
-            If you don't implement this property, you have to call
-            `reset_states()` yourself at the time of your choosing.
-        """
-        return [loss_tracker, mse_metric]
+        logpx_z = -tf.math.reduce_sum(cross_ent)
+        logpz = self.log_normal_pdf(z, 0., 0.)
+        logqz_x = self.log_normal_pdf(z, mean, logvar)
 
-    def call(self, x):
-        mean, logvar = self.encode(x)
-        z = self.reparameterize(mean, logvar)
-        decoded = self.decode(z)
-        return decoded
+        return -tf.reduce_mean(logpx_z + logpz - logqz_x)
 
     def embed(self, x):
-        return self.encoder(x, training=False)
+        mean, logvar = self.encode(x, training=False)
+        z = self.reparameterize(mean, logvar)
+        return z
 
 
 class AE(tf.keras.Model):
-    def __init__(self, layers, dims, output_dim, dropout):
+    def __init__(self, dims, output_dim, dropout):
         super(AE, self).__init__()
+
+        layers = len(dims)
 
         encoder_layers = list()
         for i in range(layers):
@@ -230,57 +231,32 @@ class DVAE(tf.keras.Model):
 
 
 class DAE(tf.keras.Model):
-    def __init__(self, hidden1_dim, hidden2_dim, output_dim, dropout):
+    def __init__(self, dims, output_dim, dropout):
         super(DAE, self).__init__()
-        self.hidden1_dim = hidden1_dim
-        self.hidden2_dim = hidden2_dim
-        self.output_dim = output_dim
-        self.dropout = dropout
+        layers = len(dims)
 
-        self.encoder = tf.keras.Sequential([
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.hidden1_dim, activation=lrelu),
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.hidden2_dim, activation=tf.nn.sigmoid),
-            tf.keras.layers.Dropout(self.dropout)
-        ])
-        self.decoder = tf.keras.Sequential([
-            tf.keras.layers.Dense(self.hidden1_dim, activation=lrelu),
-            tf.keras.layers.Dropout(self.dropout),
-            tf.keras.layers.Dense(self.output_dim, activation=tf.nn.sigmoid),
-        ])
+        encoder_layers = list()
+        for i in range(layers):
+            encoder_layers.append(tf.keras.layers.Dropout(dropout))
+            if i != layers - 1:
+                activation = lrelu
+            else:
+                activation = tf.nn.sigmoid
+            encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
 
-    def train_step(self, data, training=True):
-        x, y = data
+        dims.reverse()
+        decoder_layers = list()
+        for i in range(1, layers + 1):
+            decoder_layers.append(tf.keras.layers.Dropout(dropout))
+            if i != layers:
+                activation = lrelu
+                decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
+            else:
+                activation = tf.nn.sigmoid
+                decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation))
 
-        with tf.GradientTape() as tape:
-            y_pred = self(x, training=training)  # Forward pass
-            # Compute our own loss
-            loss = self.compute_loss(x, y)
-
-        # Compute gradients
-        gradients = tape.gradient(loss, self.trainable_variables)
-
-        # Update weights
-        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-
-        # Compute our own metrics
-        loss_tracker.update_state(loss)
-        mse_metric.update_state(y, y_pred)
-        return {"loss": loss_tracker.result(), "mse": mse_metric.result()}
-
-    def compute_loss(self, x, y):
-        z = self.encoder(x)
-        x_logit = self.decoder(z)
-
-        cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(logits=x_logit, labels=y)
-
-        return cross_ent
-
-    @property
-    def metrics(self):
-
-        return [loss_tracker, mse_metric]
+        self.encoder = tf.keras.Sequential(encoder_layers)
+        self.decoder = tf.keras.Sequential(decoder_layers)
 
     def call(self, x):
         encoded = self.encoder(x)

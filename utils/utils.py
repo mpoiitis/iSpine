@@ -414,10 +414,10 @@ def adj_to_bias(adj, sizes, nhood=1):
 
 
 def salt_and_pepper(input, noise=0.2):
-    a = np.random.binomial(n=1, p=(1-noise), size=input.shape)
-    b = np.random.binomial(n=1, p=0.5, size=input.shape)
-    c = np.equal(a, 0) * b
-    return input * a + c
+
+    input_noisy = input + noise * np.random.normal(size=input.shape)
+    input_noisy = np.clip(input_noisy, 0, 1)
+    return input_noisy
 
 
 def largest_eigval_smoothing_filter(adj):
