@@ -7,7 +7,7 @@ from sklearn.cluster import KMeans
 from utils.metrics import clustering
 from utils.utils import load_data_trunc
 import tensorflow as tf
-from .models import DAE, DVAE, AE, VAE, ClusterBooster
+from .models import AE, VAE, ClusterBooster
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError, KLDivergence
 from tensorflow.keras.callbacks import EarlyStopping
@@ -99,18 +99,12 @@ def kspace(args, feature, X, gnd):
         args.model, args.power, args.epochs, ",".join([str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
 
     # CREATE MODEL
-    if args.model == 'ae':
+    if args.model == 'ae' or args.model == 'dae':
         model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
         model.compile(optimizer=Adam(lr=args.learning_rate), loss=MeanSquaredError())
-    elif args.model == 'vae':
+    else:  # args.model == 'vae' or args.model == 'dvae'
         model = VAE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
         model.compile(optimizer=Adam(lr=args.learning_rate))
-    elif args.model == 'dae':
-        model = DAE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
-        model.compile(optimizer=Adam(lr=args.learning_rate), loss=MeanSquaredError())
-    # else:
-    #     model = DVAE(hidden1_dim=args.hidden, hidden2_dim=args.dimension, output_dim=X.shape[1], dropout=args.dropout)
-    #     model.compile(optimizer=Adam(lr=args.learning_rate))
 
     # TRAINING OR LOAD MODEL IF IT EXISTS
     if not os.path.exists(save_location):
