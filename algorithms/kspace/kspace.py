@@ -227,7 +227,7 @@ def self_supervise(args, feature, X, gnd, model, centers):
         input = salt_and_pepper(feature)
 
     optimizer = Adam(lr=args.learning_rate)
-    loss_fn = KLDivergence()
+    kl_loss = KLDivergence()
 
     train_dataset = tf.data.Dataset.from_tensor_slices((input, gnd))
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(args.batch_size)
@@ -237,6 +237,9 @@ def self_supervise(args, feature, X, gnd, model, centers):
     Q = list()
     P = list()
     epoch_loses = list()
+
+    s_max = 100
+    alpha = get_alpha(s_max, args.c_epochs, type='exp')
     for i in range(args.c_epochs):
         epoch_loss = list()
         for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
@@ -249,6 +252,9 @@ def self_supervise(args, feature, X, gnd, model, centers):
                 denominator = tf.math.reduce_sum(1 / (1 + partial))
                 Q.insert(step, nominator / denominator)
 
+                # # Q measures the similarity of embeddings with centers, so we want to maximize it, or minimize the distance
+                # Q.insert(step, 1 - (nominator / denominator))
+
                 if i % 5 == 0:
                     partial = tf.math.pow(Q[step], 2) / tf.math.reduce_sum(Q[step], axis=1, keepdims=True)
                     nominator = partial
@@ -257,7 +263,9 @@ def self_supervise(args, feature, X, gnd, model, centers):
 
                 y_pred = model(x_batch_train, training=True)
                 loss = model.compiled_loss(y_batch_train, y_pred)
-                loss += loss_fn(P[step], Q[step])
+
+                loss += alpha[i] * kl_loss(P[step], Q[step])
+                # loss += alpha[i] * tf.math.reduce_sum(Q[step])
                 epoch_loss.append(loss)
             gradients = tape.gradient(loss, model.trainable_variables + [centers])
             optimizer.apply_gradients(zip(gradients, model.trainable_variables + [centers]))
@@ -319,3 +327,19 @@ def self_supervise_clusterBooster(args, feature, X, gnd, model, centers):
     best_ari = cc.best_ari
 
     return model, best_acc, best_nmi, best_f1, best_ari
+
+
+def get_alpha(s_max, epochs, type='linear'):
+    """
+    Calculate evenly spaced alphas for each epoch based on function type
+    :param s_max: the maximum value of a. Last epoch will have this value
+    :param epochs: number of epochs
+    :param type: function type
+    :return: a numpy array of shape (epochs, 1)
+    """
+    if type == 'linear':
+        return np.linspace(0, s_max, epochs)
+    elif type == 'exp':
+        return np.array([np.exp((np.log(s_max + 1)/epochs)*i) for i in range(epochs)])
+    else:
+        return
