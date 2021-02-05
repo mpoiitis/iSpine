@@ -21,7 +21,7 @@ def alpha_scheduler(epoch, alpha):
     """
     Use with AlphaRateScheduler callback to dynamically adjust alpha
     """
-    return alpha * 0.1
+    return alpha + 0.1
     # return alpha * tf.math.exp(0.1)
 
 def get_alpha(s_max, epochs, type='linear'):
