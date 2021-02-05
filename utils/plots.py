@@ -16,18 +16,18 @@ def tsne(embeds, gnd, args):
     sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], ax=ax1, hue=gnd, legend='full', palette=palette)
     ax1.set_title('T-SNE {}'.format(args.input))
 
-    plt.savefig('figures/mymethod/tsne/{}_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension,
+    plt.savefig('figures/kspace/tsne/{}_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension,
                                                                                args.hidden), format='png')
     plt.show()
 
 
 def plot_results(config, pivot='Learning Rate'):
 
-    filepath = 'figures/mymethod/{}'.format(config['Model'])
+    filepath = 'figures/kspace/{}'.format(config['Model'])
     if not os.path.exists(filepath):
         os.makedirs(filepath)
 
-    data = pd.read_csv('output/mymethod/results.csv')
+    data = pd.read_csv('output/kspace/results.csv')
     for k, v in config.items():
         data = data.loc[data[k] == v]
 

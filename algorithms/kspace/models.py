@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
+
 loss_tracker = tf.keras.metrics.Mean(name="loss")
 mse_metric = tf.keras.metrics.MeanSquaredError(name="mse")
 
@@ -97,9 +98,12 @@ class VAE(tf.keras.Model):
 
 
 class AE(tf.keras.Model):
-    def __init__(self, dims, output_dim, dropout):
+    def __init__(self, dims, output_dim, dropout, num_centers):
         super(AE, self).__init__()
 
+        self.dims = dims[:] # the slice operator means that this is a shallow copy. Note the dims.reverse() below. self.dims needs the original list
+        self.num_centers = num_centers
+        self.alpha = tf.Variable(0, trainable=False)
         layers = len(dims)
 
         encoder_layers = list()
@@ -107,9 +111,11 @@ class AE(tf.keras.Model):
             encoder_layers.append(tf.keras.layers.Dropout(dropout))
             if i != layers - 1:
                 activation = lrelu
+                encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
             else:
                 activation = tf.nn.sigmoid
-            encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
+                encoder_layers.append(tf.keras.layers.Dense(dims[i] + num_centers*dims[i], activation=activation))
+
 
         dims.reverse()
         decoder_layers = list()
@@ -125,68 +131,62 @@ class AE(tf.keras.Model):
         self.encoder = tf.keras.Sequential(encoder_layers)
         self.decoder = tf.keras.Sequential(decoder_layers)
 
-    def call(self, x):
-        encoded = self.encoder(x)
-        decoded = self.decoder(encoded)
-        return decoded
-
-    def embed(self, x):
-        return self.encoder(x, training=False)
-
-
-class ClusterBooster(tf.keras.Model):
-    """
-    This module utilizes the cluster assignments to further optimize the model
-    Specifically its loss function contains the minimization of KL-Divergence between a soft-clustering assignment
-    distribution q and the target distribution p
-    """
-    def __init__(self, base_model, centers):
-        super(ClusterBooster, self).__init__()
-
-        self.pretrained = base_model
-        self.centers = tf.Variable(initial_value=centers, trainable=True, dtype=tf.float32)
-
-
     def train_step(self, data):
+        x, y = data
         with tf.GradientTape() as tape:
-            # Compute the loss value. Note that the model is optimized according to the new loss only (KL-loss).
-            # If a joint optimization of the kl-loss and the original mse loss is needed, it has to be implemented here
-            # Also note that P and Q distributions are calculated via callback, on epoch begin.
+            y_pred = self(x)
 
-            z = self.pretrained.encoder(data)
+            encoded = self.encoder(x)
+            z, centers= tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1) # the first <embedding_size> entries correspond to the embedding
+
             z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
+            centers = tf.reshape(centers, [tf.shape(z)[0], self.num_centers, -1]) # from (batch_size, num_centers*emb_dim) to (batch_size, num_centers, emb_dim)
             # UPDATE Q EVERY EPOCH
-            partial = tf.math.pow(tf.norm(z - self.centers, axis=2, ord='euclidean'), 2)
+            partial = tf.math.pow(tf.norm(z - centers, axis=2, ord='euclidean'), 2)
             nominator = 1 / (1 + partial)
             denominator = tf.math.reduce_sum(1 / (1 + partial))
-            self.Q = nominator / denominator
+            self.Q = 1 - (nominator / denominator)
 
-            partial = tf.math.pow(self.Q, 2) / tf.math.reduce_sum(self.Q, axis=1, keepdims=True)
-            nominator = partial
-            denominator = tf.math.reduce_sum(partial, axis=0)
-            self.P = nominator / denominator
-
-            loss = self.compiled_loss(self.P, self.Q)
+            # MSE + the Q optimization loss with alpha regularization factors
+            loss = self.compiled_loss(y, y_pred) + 0.1 * tf.math.reduce_sum(self.Q) # self.alpha * tf.math.reduce_sum(self.Q)
+        print(self.optimizer.iterations)
+        return
         # Compute gradients
-        gradients = tape.gradient(loss, self.pretrained.encoder.trainable_variables + [self.centers])
+        gradients = tape.gradient(loss, self.trainable_variables)
         # Update weights
-        self.optimizer.apply_gradients(zip(gradients, self.pretrained.encoder.trainable_variables + [self.centers]))
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
         loss_tracker.update_state(loss)
         return {m.name: m.result() for m in self.metrics}
 
-
-    @property
-    def metrics(self):
-
-        return [loss_tracker]
+    def call(self, x):
+        encoded = self.encoder(x)
+        z, _ = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1) # keep only the embedding values
+        decoded = self.decoder(z)
+        return decoded
 
     def embed(self, x):
-        z = self.pretrained.embed(x)
+        encoded = self.encoder(x, training=False)
+        z, _ = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1)
         return z
 
-    def call(self, x):
-        return self.pretrained.call(x)
+
+class CustomLoss(tf.keras.losses.Loss):
+    def __init__(self, regularization_type, s_max, epochs, name="Q_loss"):
+        super().__init__(name=name)
+
+        if regularization_type == 'linear':
+            self.alpha = np.linspace(0, s_max, epochs)
+        elif regularization_type == 'exp':
+            self.alpha = np.array([np.exp((np.log(s_max + 1) / epochs) * i) for i in range(epochs)])
+        self.current_epoch = 0
+
+
+    def call(self, y_true, y_pred):
+        Q = y_true
+        alpha = self.alpha[self.current_epoch]
+        self.current_epoch += 1
+        return alpha * tf.math.reduce_sum(Q)
 
 
 def lrelu(x, leak=0.2, name="lrelu"):
