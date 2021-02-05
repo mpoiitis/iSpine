@@ -149,8 +149,7 @@ class AE(tf.keras.Model):
 
             # MSE + the Q optimization loss with alpha regularization factors
             loss = self.compiled_loss(y, y_pred) + 0.1 * tf.math.reduce_sum(self.Q) # self.alpha * tf.math.reduce_sum(self.Q)
-        print(self.optimizer.iterations)
-        return
+
         # Compute gradients
         gradients = tape.gradient(loss, self.trainable_variables)
         # Update weights
@@ -169,24 +168,6 @@ class AE(tf.keras.Model):
         encoded = self.encoder(x, training=False)
         z, _ = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1)
         return z
-
-
-class CustomLoss(tf.keras.losses.Loss):
-    def __init__(self, regularization_type, s_max, epochs, name="Q_loss"):
-        super().__init__(name=name)
-
-        if regularization_type == 'linear':
-            self.alpha = np.linspace(0, s_max, epochs)
-        elif regularization_type == 'exp':
-            self.alpha = np.array([np.exp((np.log(s_max + 1) / epochs) * i) for i in range(epochs)])
-        self.current_epoch = 0
-
-
-    def call(self, y_true, y_pred):
-        Q = y_true
-        alpha = self.alpha[self.current_epoch]
-        self.current_epoch += 1
-        return alpha * tf.math.reduce_sum(Q)
 
 
 def lrelu(x, leak=0.2, name="lrelu"):
