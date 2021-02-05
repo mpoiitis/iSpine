@@ -4,12 +4,16 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.framework import ops
 
 
+def lrelu(x, leak=0.2, name="lrelu"):
+    """
+    Leaky ReLU function
+    """
+    return tf.math.maximum(x, leak * x)
+
+
 def lr_scheduler(epoch, lr):
     """
     Use with LearningRateScheduler callback to dynamically adjust lr
-    :param epoch:
-    :param lr:
-    :return:
     """
     if epoch < 10:
         return lr
@@ -42,7 +46,7 @@ def get_alpha(s_max, epochs, type='linear'):
 
 
 class AlphaRateScheduler(tf.keras.callbacks.Callback):
-    """Learning rate scheduler.
+    """Alpha rate scheduler.
 
       At the beginning of every epoch, this callback gets the updated alpha rate
       value from `schedule` function provided at `__init__`, with the current epoch
@@ -72,7 +76,7 @@ class AlphaRateScheduler(tf.keras.callbacks.Callback):
             raise ValueError('The dtype of Tensor should be float')
         K.set_value(self.model.alpha, K.get_value(alpha))
         if self.verbose > 0:
-                print('\nEpoch %05d: AlphaRateScheduler changing alpha to %s ' % (epoch + 1, alpha))
+                print('\nEpoch %d: AlphaRateScheduler changing alpha to %s ' % (epoch + 1, alpha))
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}

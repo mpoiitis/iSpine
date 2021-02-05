@@ -1,5 +1,4 @@
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from evaluation.evaluation import auto_kmeans
 from algorithms.gcn.gcn import run_gcn
 from algorithms.dgi.dgi import run_dgi
 from algorithms.vgae.vgae import run_vgae
@@ -14,11 +13,9 @@ from utils.plots import plot_results
 
 def parse_args():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter, conflict_handler='resolve')
-    subparsers = parser.add_subparsers(dest='mode', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
+    parser.add_argument('input', choices=['cora', 'citeseer', 'pubmed', 'wiki'], help="Input graph dataset. Options: ['cora', 'citeseer', 'pubmed', 'wiki']")
 
-    embedding_parser = subparsers.add_parser('embedding', help="Runs an embedding algorithm to produce the representation.")
-    embedding_parser.add_argument('input', choices=['cora', 'citeseer', 'pubmed', 'wiki'], help="Input graph dataset. Options: ['cora', 'citeseer', 'pubmed', 'wiki']")
-    embedding_subparsers = embedding_parser.add_subparsers(dest='method', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
+    embedding_subparsers = parser.add_subparsers(dest='method', help="Specifies whether to run an embedding generation algorithm or an embedding evaluation method.")
 
     gcn_parser = embedding_subparsers.add_parser('gcn', help='GCN method.')
     gcn_parser.add_argument("--type", default='gcn', type=str, choices=['gcn', 'gcn_cheby'], help="Type of adjacency matrix. Default is gcn.")
@@ -108,17 +105,12 @@ def parse_args():
     kSpace_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
     kSpace_parser.add_argument("--batch-size", default=100, type=int, help="Size of the batch used for training. Default is 100.")
     kSpace_parser.add_argument("--epochs", default=500, type=int, help="Number of epochs. Default is 500.")
-    kSpace_parser.add_argument("--c-epochs", default=None, type=int, help="Number of epochs for Cluster Booster. If None, cluster boosting won't be applied. Default is None.")
     kSpace_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
-    kSpace_parser.add_argument("--power", default=8, type=int, help="The upper bound of convolution order to search, Default is 8.")
-    kSpace_parser.add_argument('--upd', type=int, default=10, help='Update epoch.')
+    kSpace_parser.add_argument("--power", default=8, type=int, help="The upper bound of convolution order to search. Default is 8.")
+    kSpace_parser.add_argument("--a-max", default=5, type=int, help="The upper bound of alpha rate. Default is 5.")
+    kSpace_parser.add_argument("--alpha", default='linear', type=str, choices=['linear', 'exp'], help="How to calculate alpha for every training epoch. [linear, exp]. Default is linear")
     kSpace_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 
-    evaluation_parser = subparsers.add_parser('evaluation', help="Runs an evaluation algorithm to test the produced embeddings.")
-    evaluation_parser.add_argument('input', help='The embedding file.')
-    evaluation_parser.add_argument('gt_input', help='Path of file containing ground truth')
-    evaluation_parser.add_argument('--normalize', dest='normalize', action='store_true', help='If given, data will be normalized')
-    evaluation_parser.add_argument('--k', default=5, type=int, help='Number of clusters')
     args = parser.parse_args()
 
     return args
@@ -127,7 +119,7 @@ def parse_args():
 if __name__ == "__main__":
 
     # config = {'Dataset': 'pubmed', 'Model': 'ae', 'Dimension': 100, 'Power': 7,
-    #           'Epochs': 500, 'Batch Size': 100, 'Learning Rate': 0.001, 'Cluster Epochs': 0, 'Dropout': 0.2}
+    #           'Epochs': 500, 'Batch Size': 100, 'Learning Rate': 0.001, 'a': 'linear', 'a_max': 5, 'Dropout': 0.2}
     # plot_results(config, 'Hidden')
 
     args = parse_args()

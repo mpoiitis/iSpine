@@ -12,14 +12,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError, KLDivergence
 from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
-from .utils import AlphaRateScheduler, alpha_scheduler
-
-
-AMAX = 5
-STEP_TYPE = 'linear'
-LOSS_TYPE = 'Q'
-PRETRAINING = 'trained'
-CSV_LOCATION = 'output/kspace/logs/{}amax_{}step_{}loss_{}.csv'.format(AMAX, STEP_TYPE, LOSS_TYPE, PRETRAINING)
+from .utils import AlphaRateScheduler, alpha_scheduler, get_alpha
 
 
 def run_kspace_grid_search():
@@ -70,45 +63,12 @@ def run_kspace_grid_search():
                     session_num += 1
 
 
-class CMetricsTraceCallback(tf.keras.callbacks.Callback):
-    def __init__(self, upd, best_cl, Cluster, feature, gnd, epochs):
-        super(CMetricsTraceCallback, self).__init__()
-        self.upd = upd
-        self.best_db = best_cl
-        self.Cluster = Cluster
-        self.feature = feature
-        self.gnd = gnd
-        self.epochs = epochs
-
-        self.best_acc = -1
-        self.best_nmi = -1
-        self.best_f1 = -1
-        self.best_ari = -1
-        self.best_epoch = -1
-        self.cluster_centers = self.Cluster.cluster_centers_
-
-    def on_epoch_begin(self, epoch, logs=None):
-        if (epoch + 1) % self.upd == 0 or epoch == self.epochs - 1:
-            embeds = self.model.embed(self.feature)
-            db, acc, nmi, f1, adjscore, centers = clustering(self.Cluster, embeds, self.gnd)
-            tqdm.write("DB: {} ACC: {} NMI: {} ARI: {}".format(db, acc, nmi, adjscore))
-            if db >= self.best_db:
-                self.best_db = db
-                self.best_acc = acc
-                self.best_nmi = nmi
-                self.best_f1 = f1
-                self.best_ari = adjscore
-                self.best_epoch = epoch
-                self.cluster_centers = centers
-
-
 def kspace(args, feature, X, gnd):
     save_location = 'output/{}_{}_{}_power{}_epochs{}_dims{}-batch{}-lr{}-drop{}'.format(args.input, args.method,
         args.model, args.power, args.epochs, ",".join([str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
 
     m = len(np.unique(gnd))
-    from .utils import get_alpha
-    alphas = get_alpha(5, 500, 'linear')
+    alphas = get_alpha(args.a_max, args.epochs, args.alpha)
 
     # CREATE MODEL
     if args.model == 'ae' or args.model == 'dae':
@@ -120,12 +80,8 @@ def kspace(args, feature, X, gnd):
 
     # TRAINING OR LOAD MODEL IF IT EXISTS
     if not os.path.exists(save_location):
-        # TRAINING
         model, centers, acc, nmi, f1, ari = train(args, feature, X, gnd, model)
 
-        # SELF-SUPERVISION
-        if args.c_epochs:
-            model, acc, nmi, f1, ari = self_supervise(args, feature, X, gnd, model, centers)
         if args.save:
             os.makedirs(save_location)
             model.save_weights(save_location + '/checkpoint')
@@ -190,13 +146,14 @@ def train(args, feature, X, gnd, model):
 
     # CALLBACKS
     es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-    csv_logger = CSVLogger(CSV_LOCATION)
-    alpha_callback = AlphaRateScheduler(alpha_scheduler)
+    csv_location = 'output/kspace/logs/{}amax_{}step.csv'.format(args.a_max, args.alpha)
+    csv_logger = CSVLogger(csv_location)
+    alpha_cb = AlphaRateScheduler(alpha_scheduler)
 
     # TRAINING
     # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
     print('Training model for {}-order convolution'.format(args.power))
-    model.fit(input, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, csv_logger, alpha_callback], verbose=1)
+    model.fit(input, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, csv_logger, alpha_cb], verbose=1)
 
     embeds = model.embed(input)
     db, acc, nmi, f1, ari, centers = clustering(Cluster, embeds, gnd)
@@ -209,89 +166,13 @@ def train(args, feature, X, gnd, model):
 def write_results(args, ac, nm, f1, ari):
     file_exists = os.path.isfile('output/kspace/results.csv')
     with open('output/kspace/results.csv', 'a') as f:
-        columns = ['Dataset', 'Model', 'Dimension', 'Hidden', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
-                   'Cluster Epochs', 'Power', 'Accuracy', 'NMI', 'F1', 'ARI']
+        columns = ['Dataset', 'Model', 'Dimensions', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
+                   'A Max', 'A Type', 'Power', 'Accuracy', 'NMI', 'F1', 'ARI']
         writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
 
         if not file_exists:
             writer.writeheader()  # file doesn't exist yet, write a header
-        writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimension': args.dimension, 'Hidden': args.hidden,
+        writer.writerow({'Dataset': args.input, 'Model': args.model, 'Dimensions': ",".join([str(x) for x in args.dims]),
                          'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
-                         'Dropout': args.dropout, 'Cluster Epochs': args.c_epochs,
-                         'Power': args.power, 'Accuracy': ac, 'NMI': nm, 'F1': f1, 'ARI': ari})
-
-
-def self_supervise(args, feature, X, gnd, model, centers):
-    """
-    Self-supervision using KL loss
-    :param args: cli arguments
-    :param feature: original feature matrix
-    :param X: the smoothed matrix
-    :param gnd: ground truth labels
-    :param model: the pretrained model
-    :param centers: cluster centers using the embeddings of the pretrained model
-    """
-    m = len(np.unique(gnd))  # number of clusters according to ground truth
-    Cluster = KMeans(n_clusters=m)
-
-    # ADD NOISE IN CASE OF DENOISING MODELS
-    if args.model == 'ae' or args.model == 'vae':
-        input = feature
-    else:
-        input = salt_and_pepper(feature)
-
-    optimizer = Adam(lr=args.learning_rate)
-    kl_loss = KLDivergence()
-
-    train_dataset = tf.data.Dataset.from_tensor_slices((input, X))
-    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(args.batch_size)
-
-    centers = tf.Variable(initial_value=centers, trainable=True, dtype=tf.float32)
-    # for each distribution create a list as train set is split into batches
-    Q = list()
-    P = list()
-    epoch_loses = list()
-
-    s_max = AMAX
-    alpha = get_alpha(s_max, args.c_epochs, type=STEP_TYPE)
-    for i in range(args.c_epochs):
-        epoch_loss = list()
-        for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
-            with tf.GradientTape() as tape:
-                z = model.encoder(x_batch_train, training=True)
-                z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
-
-                partial = tf.math.pow(tf.norm(z - centers, axis=2, ord='euclidean'), 2)
-                nominator = 1 / (1 + partial)
-                denominator = tf.math.reduce_sum(1 / (1 + partial))
-                if LOSS_TYPE == 'KL':
-                    Q.insert(step, nominator / denominator)
-
-                    if i % 5 == 0:
-                        partial = tf.math.pow(Q[step], 2) / tf.math.reduce_sum(Q[step], axis=1, keepdims=True)
-                        nominator = partial
-                        denominator = tf.math.reduce_sum(partial, axis=0)
-                        P.insert(step, nominator / denominator)
-                    loss = alpha[i] * kl_loss(P[step], Q[step])
-                elif LOSS_TYPE == 'Q':
-                    Q.insert(step, 1 - (nominator / denominator))
-                    loss = alpha[i] * tf.math.reduce_sum(Q[step])
-                else:
-                    return
-
-                y_pred = model(x_batch_train, training=True)
-                loss += model.compiled_loss(y_batch_train, y_pred)
-                epoch_loss.append(loss)
-            gradients = tape.gradient(loss, model.trainable_variables + [centers])
-            optimizer.apply_gradients(zip(gradients, model.trainable_variables + [centers]))
-
-        epoch_loss = np.mean(epoch_loss)
-        epoch_loses.append(epoch_loss)
-        print('Epoch: %d Loss: %.4f' % (i, float(epoch_loss)))
-
-    embeds = model.embed(input)
-    db, acc, nmi, f1, ari, _ = clustering(Cluster, embeds, gnd)
-    print("DB: {} ACC: {} F1: {} NMI: {} ARI: {}".format(db, acc, f1, nmi, ari))
-
-    return model, acc, nmi, f1, ari
-
+                         'Dropout': args.dropout, 'A Max': args.a_max, 'A Type': args.alpha, 'Power': args.power,
+                         'Accuracy': ac, 'NMI': nm, 'F1': f1, 'ARI': ari})

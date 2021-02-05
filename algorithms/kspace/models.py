@@ -1,9 +1,8 @@
 import tensorflow as tf
 import numpy as np
-
+from .utils import lrelu
 
 loss_tracker = tf.keras.metrics.Mean(name="loss")
-mse_metric = tf.keras.metrics.MeanSquaredError(name="mse")
 
 
 class VAE(tf.keras.Model):
@@ -99,12 +98,18 @@ class VAE(tf.keras.Model):
 
 class AE(tf.keras.Model):
     def __init__(self, dims, output_dim, dropout, num_centers, alphas):
+        """
+        :param dims: list of integers corresponding to each layer's dimensions
+        :param output_dim: int. the dimension of the reconstructed output
+        :param dropout: float. dropout rate
+        :param num_centers: int, the number of centers to calculate
+        :param alphas: np.array with the alpha rate for every epoch. Used in callback to update alpha
+        """
         super(AE, self).__init__()
 
         self.dims = dims[:] # the slice operator means that this is a shallow copy. Note the dims.reverse() below. self.dims needs the original list
         self.num_centers = num_centers
-        self.alpha = tf.Variable(0, trainable=False, dtype=tf.float32)
-        self.alphas = tf.convert_to_tensor(alphas, dtype=tf.float32, name='alphas')
+
         layers = len(dims)
 
         encoder_layers = list()
@@ -116,7 +121,6 @@ class AE(tf.keras.Model):
             else:
                 activation = tf.nn.sigmoid
                 encoder_layers.append(tf.keras.layers.Dense(dims[i] + num_centers*dims[i], activation=activation))
-
 
         dims.reverse()
         decoder_layers = list()
@@ -131,6 +135,9 @@ class AE(tf.keras.Model):
 
         self.encoder = tf.keras.Sequential(encoder_layers)
         self.decoder = tf.keras.Sequential(decoder_layers)
+
+        self.alphas = tf.convert_to_tensor(alphas, dtype=tf.float32, name='alphas')
+        self.alpha = tf.Variable(0, trainable=False, dtype=tf.float32)
 
     def train_step(self, data):
         x, y = data
@@ -149,8 +156,7 @@ class AE(tf.keras.Model):
             self.Q = 1 - (nominator / denominator)
 
             # MSE + the Q optimization loss with alpha regularization factors
-            tf.print(self.alpha)
-            loss = self.compiled_loss(y, y_pred) + self.alpha * tf.math.reduce_sum(self.Q) # self.alpha * tf.math.reduce_sum(self.Q)
+            loss = self.compiled_loss(y, y_pred) + self.alpha * tf.math.reduce_sum(self.Q)
 
         # Compute gradients
         gradients = tape.gradient(loss, self.trainable_variables)
@@ -172,5 +178,4 @@ class AE(tf.keras.Model):
         return z
 
 
-def lrelu(x, leak=0.2, name="lrelu"):
-    return tf.math.maximum(x, leak * x)
+

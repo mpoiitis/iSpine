@@ -4,7 +4,6 @@ from algorithms.dane.pretrainer import PreTrainer
 from .models import FullModel
 import os
 import tensorflow as tf
-from evaluation.evaluation import auto_kmeans
 from utils.utils import preprocess_features, load_data, save_results
 
 
@@ -129,10 +128,8 @@ def run_dane(args):
 
     # produce embeddings
     _, _, embeds = model.embed((walks, features))
-    embeds = [e.numpy() for e in embeds]
 
     # save embeddings
+    embeds = [e.numpy() for e in embeds]
     save_results(args, embeds)
 
-    # CLUSTERING
-    cluster_assignments = auto_kmeans(embedding_file=args.output, kmax=10)

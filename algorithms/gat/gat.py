@@ -1,8 +1,7 @@
 import tensorflow as tf
 import numpy as np
-from utils.utils import load_data, preprocess_features, preprocess_adj_bias, adj_to_bias, save_results
+from utils.utils import load_data, preprocess_features, preprocess_adj_bias, adj_to_bias
 from .models import GAT
-from evaluation.evaluation import auto_kmeans
 
 
 def train(model, inputs, bias_mat, lbl_in, msk_in, optimizer):

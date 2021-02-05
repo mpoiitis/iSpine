@@ -2,7 +2,6 @@ import numpy as np
 import tensorflow as tf
 from algorithms.vgae.models import VGAE, GAE
 from utils.utils import preprocess_adj, preprocess_features, load_data, sparse_to_tuple, chebyshev_polynomials, save_results
-from evaluation.evaluation import auto_kmeans
 
 
 def run_vgae(args):
@@ -96,7 +95,4 @@ def run_vgae(args):
     embeds = [e.numpy() for e in embeds]
     save_results(args, embeds)
 
-
-    # CLUSTERING
-    cluster_assignments = auto_kmeans(embedding_file=args.output, kmax=10)
 
