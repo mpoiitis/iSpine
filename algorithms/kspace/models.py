@@ -98,12 +98,13 @@ class VAE(tf.keras.Model):
 
 
 class AE(tf.keras.Model):
-    def __init__(self, dims, output_dim, dropout, num_centers):
+    def __init__(self, dims, output_dim, dropout, num_centers, alphas):
         super(AE, self).__init__()
 
         self.dims = dims[:] # the slice operator means that this is a shallow copy. Note the dims.reverse() below. self.dims needs the original list
         self.num_centers = num_centers
         self.alpha = tf.Variable(0, trainable=False, dtype=tf.float32)
+        self.alphas = tf.convert_to_tensor(alphas, dtype=tf.float32, name='alphas')
         layers = len(dims)
 
         encoder_layers = list()
@@ -148,6 +149,7 @@ class AE(tf.keras.Model):
             self.Q = 1 - (nominator / denominator)
 
             # MSE + the Q optimization loss with alpha regularization factors
+            tf.print(self.alpha)
             loss = self.compiled_loss(y, y_pred) + self.alpha * tf.math.reduce_sum(self.Q) # self.alpha * tf.math.reduce_sum(self.Q)
 
         # Compute gradients

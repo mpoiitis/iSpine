@@ -17,12 +17,13 @@ def lr_scheduler(epoch, lr):
         return lr * tf.math.exp(-0.1)
 
 
-def alpha_scheduler(epoch, alpha):
+def alpha_scheduler(epoch, alphas):
     """
     Use with AlphaRateScheduler callback to dynamically adjust alpha
     """
-    return alpha + 0.1
+    return alphas[epoch]
     # return alpha * tf.math.exp(0.1)
+
 
 def get_alpha(s_max, epochs, type='linear'):
     """
@@ -60,11 +61,10 @@ class AlphaRateScheduler(tf.keras.callbacks.Callback):
     def on_epoch_begin(self, epoch, logs=None):
         if not hasattr(self.model, 'alpha'):
             raise ValueError('Model must have a "alpha" attribute.')
-        try:  # new API
-            alpha = float(K.get_value(self.model.alpha))
-            alpha = self.schedule(epoch, alpha)
-        except TypeError:  # Support for old API for backward compatibility
-            alpha = self.schedule(epoch)
+
+        alphas = np.array(K.get_value(self.model.alphas))
+        alpha = self.schedule(epoch, alphas)
+
         if not isinstance(alpha, (ops.Tensor, float, np.float32, np.float64)):
             raise ValueError('The output of the "schedule" function '
                              'should be float.')
@@ -72,8 +72,7 @@ class AlphaRateScheduler(tf.keras.callbacks.Callback):
             raise ValueError('The dtype of Tensor should be float')
         K.set_value(self.model.alpha, K.get_value(alpha))
         if self.verbose > 0:
-            print('\nEpoch %05d: LearningRateScheduler reducing learning '
-                  'rate to %s.' % (epoch + 1, alpha))
+                print('\nEpoch %05d: AlphaRateScheduler changing alpha to %s ' % (epoch + 1, alpha))
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}

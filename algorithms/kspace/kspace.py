@@ -106,15 +106,13 @@ def kspace(args, feature, X, gnd):
     save_location = 'output/{}_{}_{}_power{}_epochs{}_dims{}-batch{}-lr{}-drop{}'.format(args.input, args.method,
         args.model, args.power, args.epochs, ",".join([str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
 
-    # get centers to use in training
     m = len(np.unique(gnd))
-    # Cluster = KMeans(n_clusters=m)
-    # _, _, _, _, _, centers = clustering(Cluster, feature, gnd)
-    # centers = PCA(n_components=args.dims[-1], svd_solver='auto').fit(centers) # reduce dimensions as the initial centers come from original feature matrix and not the embedded
-    # centers = np.random.random(size=(m, args.dims[-1]))
+    from .utils import get_alpha
+    alphas = get_alpha(5, 500, 'linear')
+
     # CREATE MODEL
     if args.model == 'ae' or args.model == 'dae':
-        model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout, num_centers=m)
+        model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout, num_centers=m, alphas=alphas)
         model.compile(optimizer=Adam(lr=args.learning_rate), loss=MeanSquaredError())
     else:  # args.model == 'vae' or args.model == 'dvae'
         model = VAE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
@@ -194,6 +192,7 @@ def train(args, feature, X, gnd, model):
     es = EarlyStopping(monitor='loss', patience=args.early_stopping)
     csv_logger = CSVLogger(CSV_LOCATION)
     alpha_callback = AlphaRateScheduler(alpha_scheduler)
+
     # TRAINING
     # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
     print('Training model for {}-order convolution'.format(args.power))
