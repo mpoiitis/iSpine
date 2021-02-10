@@ -3,7 +3,7 @@ import numpy as np
 from .utils import lrelu
 
 loss_tracker = tf.keras.metrics.Mean(name="loss")
-
+mse_loss = tf.keras.losses.MeanSquaredError()
 
 class VAE(tf.keras.Model):
     def __init__(self, dims, output_dim, dropout):
@@ -145,7 +145,7 @@ class AE(tf.keras.Model):
             y_pred = self(x)
 
             encoded = self.encoder(x)
-            z, centers= tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1) # the first <embedding_size> entries correspond to the embedding
+            z, centers = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1) # the first <embedding_size> entries correspond to the embedding
 
             z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
             centers = tf.reshape(centers, [tf.shape(z)[0], self.num_centers, -1]) # from (batch_size, num_centers*emb_dim) to (batch_size, num_centers, emb_dim)
@@ -156,7 +156,9 @@ class AE(tf.keras.Model):
             self.Q = 1 - (nominator / denominator)
 
             # MSE + the Q optimization loss with alpha regularization factors
-            loss = self.compiled_loss(y, y_pred) + self.alpha * tf.math.reduce_sum(self.Q)
+            rec_loss = mse_loss(y, y_pred)
+            c_loss = tf.math.reduce_sum(self.Q)
+            loss = rec_loss + self.alpha * c_loss
 
         # Compute gradients
         gradients = tape.gradient(loss, self.trainable_variables)
@@ -164,7 +166,7 @@ class AE(tf.keras.Model):
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
         loss_tracker.update_state(loss)
-        return {m.name: m.result() for m in self.metrics}
+        return {'loss': loss_tracker.result(), 'Reconstruction': rec_loss, 'Clustering': c_loss}
 
     def call(self, x):
         encoded = self.encoder(x)

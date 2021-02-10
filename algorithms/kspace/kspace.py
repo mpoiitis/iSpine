@@ -9,7 +9,7 @@ from utils.utils import load_data_trunc
 import tensorflow as tf
 from .models import AE, VAE
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import MeanSquaredError, KLDivergence
+from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
 from .utils import AlphaRateScheduler, alpha_scheduler, get_alpha
@@ -73,7 +73,7 @@ def kspace(args, feature, X, gnd):
     # CREATE MODEL
     if args.model == 'ae' or args.model == 'dae':
         model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout, num_centers=m, alphas=alphas)
-        model.compile(optimizer=Adam(lr=args.learning_rate), loss=MeanSquaredError())
+        model.compile(optimizer=Adam(lr=args.learning_rate))
     else:  # args.model == 'vae' or args.model == 'dvae'
         model = VAE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
         model.compile(optimizer=Adam(lr=args.learning_rate))
@@ -146,14 +146,16 @@ def train(args, feature, X, gnd, model):
 
     # CALLBACKS
     es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-    csv_location = 'output/kspace/logs/{}amax_{}step.csv'.format(args.a_max, args.alpha)
-    csv_logger = CSVLogger(csv_location)
+    # csv_location = 'output/kspace/logs/{}amax_{}step.csv'.format(args.a_max, args.alpha)
+    # csv_logger = CSVLogger(csv_location)
     alpha_cb = AlphaRateScheduler(alpha_scheduler)
 
+    logdir = "logs/scalars/losses"
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
     # TRAINING
     # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
     print('Training model for {}-order convolution'.format(args.power))
-    model.fit(input, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, csv_logger, alpha_cb], verbose=1)
+    model.fit(input, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[es, alpha_cb, tensorboard_callback], verbose=1)
 
     embeds = model.embed(input)
     db, acc, nmi, f1, ari, centers = clustering(Cluster, embeds, gnd)
@@ -161,6 +163,69 @@ def train(args, feature, X, gnd, model):
     print("DB: {} ACC: {} F1: {} NMI: {} ARI: {}".format(db, acc, f1, nmi, ari))
 
     return model, centers, acc, nmi, f1, ari
+
+
+def custom_train(args, feature, X, gnd, model):
+    """
+    Model training
+    :param args: cli arguments
+    :param feature: original feature matrix
+    :param X: the smoothed matrix
+    :param gnd: ground truth labels
+    :param model: the nn to be trained
+    """
+    mse_loss = tf.keras.losses.MeanSquaredError()
+    m = len(np.unique(gnd)) # number of clusters according to ground truth
+    Cluster = KMeans(n_clusters=m)
+
+    # ADD NOISE IN CASE OF DENOISING MODELS
+    if args.model == 'ae' or args.model == 'vae':
+        input = feature
+    else:
+        input = salt_and_pepper(feature)
+
+    train_dataset = tf.data.Dataset.from_tensor_slices((input, X))
+    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(args.batch_size)
+    losses = list()
+    rec_losses = list()
+    c_losses = list()
+    for epoch in range(args.epochs):
+        print("\nStart of epoch %d" % (epoch,))
+        for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
+            with tf.GradientTape() as tape:
+                y_pred = model(x_batch_train, training=True)
+
+                encoded = model.encoder(x_batch_train)
+                z, centers = tf.split(encoded, [model.dims[-1], encoded.shape[1] - model.dims[-1]], 1)
+
+                z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
+                centers = tf.reshape(centers, [tf.shape(z)[0], model.num_centers, -1])  # from (batch_size, num_centers*emb_dim) to (batch_size, num_centers, emb_dim)
+                # UPDATE Q EVERY EPOCH
+                partial = tf.math.pow(tf.norm(z - centers, axis=2, ord='euclidean'), 2)
+                nominator = 1 / (1 + partial)
+                denominator = tf.math.reduce_sum(1 / (1 + partial))
+                model.Q = 1 - (nominator / denominator)
+
+                rec_loss = mse_loss(y_batch_train, y_pred)
+                c_loss = tf.math.reduce_sum(model.Q)
+                loss = rec_loss + model.alpha * c_loss
+
+            losses.append(loss)
+            rec_losses.append(rec_loss)
+            c_losses.append(c_loss)
+            # Compute gradients
+            gradients = tape.gradient(loss, model.trainable_variables)
+            # Update weights
+            model.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        print("Loss: {} Reconstruction: {} Clustering: {}".format(tf.math.reduce_mean(losses), tf.math.reduce_mean(rec_losses), tf.math.reduce_mean(c_losses)))
+
+    embeds = model.embed(input)
+    db, acc, nmi, f1, ari, centers = clustering(Cluster, embeds, gnd)
+    print("Optimization Finished!")
+    print("DB: {} ACC: {} F1: {} NMI: {} ARI: {}".format(db, acc, f1, nmi, ari))
+
+    return model, centers, acc, nmi, f1, ari
+
 
 
 def write_results(args, ac, nm, f1, ari):
