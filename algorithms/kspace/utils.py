@@ -1,8 +1,7 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow.python.keras import backend as K
 from tensorflow.python.framework import ops
-
+import tensorflow.keras.backend as K
 
 def lrelu(x, leak=0.2, name="lrelu"):
     """
@@ -81,3 +80,20 @@ class AlphaRateScheduler(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
         logs['alpha'] = K.get_value(self.model.alpha)
+
+
+class ClusterLoss(tf.keras.losses.Loss):
+    def __init__(self):
+        super().__init__(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE, name='ClusteringLoss')
+
+    def call(self, z, centers):
+        """
+        Implements a student's t-distribution with degree of freedom = 1
+        """
+        # squeeze drops last dimension which is 1 after the norm calculation
+        partial = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
+        nominator = tf.math.reciprocal(1 + partial)
+        denominator = tf.math.reduce_sum(nominator, axis=1)
+        denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1]) # reshape to broadcast denominator in the below division
+        q = - tf.math.divide(nominator, denominator)
+        return q

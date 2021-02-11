@@ -1,34 +1,11 @@
 import tensorflow as tf
 import numpy as np
-from .utils import lrelu
-import tensorflow.keras.backend as K
+from .utils import lrelu, ClusterLoss
 
 loss_tracker = tf.keras.metrics.Mean(name="loss")
 mse_loss = tf.keras.losses.MeanSquaredError()
-
-
-class ClusterLoss(tf.keras.losses.Loss):
-    def __init__(self):
-        super().__init__()
-
-    def call(self, z, centers):
-        mean_z = K.mean(z)
-        mean_centers = K.mean(centers)
-        std_z = K.std(z)
-        std_centers = K.std(centers)
-        len_z = tf.cast(tf.shape(z)[0], tf.float32)
-        len_centers = tf.cast(tf.shape(centers)[0], tf.float32)
-        error_z = std_z / len_z
-        error_centers = std_centers / len_centers
-        t = (mean_z - mean_centers) / K.sqrt(K.square(error_z) + K.square(error_centers))
-        return t
-        # partial = K.square(K.l2_normalize(z - centers))
-        # nominator = 1 / (1 + partial)
-        # denominator = K.sum(1 / (1 + partial))
-        # q = 1 - (nominator / denominator)
-        # return q
-
 cluster_loss = ClusterLoss()
+
 
 class VAE(tf.keras.Model):
     def __init__(self, dims, output_dim, dropout):
@@ -144,7 +121,7 @@ class AE(tf.keras.Model):
                 activation = lrelu
                 encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
             else:
-                activation = lrelu
+                activation = None
                 encoder_layers.append(tf.keras.layers.Dense(dims[i] + num_centers*dims[i], activation=activation))
 
         dims.reverse()
@@ -155,7 +132,7 @@ class AE(tf.keras.Model):
                 activation = lrelu
                 decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
             else:
-                activation = None # linear last layer
+                activation = None  # linear last layer
                 decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation))
 
         self.encoder = tf.keras.Sequential(encoder_layers)
@@ -171,7 +148,6 @@ class AE(tf.keras.Model):
 
             encoded = self.encoder(x)
             z, centers = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1) # the first <embedding_size> entries correspond to the embedding
-
             z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
             centers = tf.reshape(centers, [tf.shape(z)[0], self.num_centers, -1]) # from (batch_size, num_centers*emb_dim) to (batch_size, num_centers, emb_dim)
 
