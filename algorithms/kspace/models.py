@@ -154,7 +154,7 @@ class AE(tf.keras.Model):
             # MSE + the Q optimization loss with alpha regularization factors
             rec_loss = mse_loss(y, y_pred)
             c_loss = cluster_loss(z, centers)
-            loss =  rec_loss + self.alpha * c_loss
+            loss = rec_loss +  self.alpha * c_loss
 
         # Compute gradients
         gradients = tape.gradient(loss, self.trainable_variables)
