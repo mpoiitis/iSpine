@@ -13,6 +13,7 @@ from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
 from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
 from .utils import AlphaRateScheduler, alpha_scheduler, get_alpha
+import datetime
 
 
 def run_kspace_grid_search():
@@ -150,7 +151,7 @@ def train(args, feature, X, gnd, model):
     # csv_logger = CSVLogger(csv_location)
     alpha_cb = AlphaRateScheduler(alpha_scheduler)
 
-    logdir = "logs/scalars/losses"
+    logdir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
     # TRAINING
     # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
