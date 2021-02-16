@@ -59,8 +59,7 @@ class clustering_metrics():
         numclass2 = len(l2)
 
         if numclass1 != numclass2:
-            print('Class Not equal, Error!!!!')
-            return 0
+            raise Exception('Class Not equal, Error!!!!')
 
         cost = np.zeros((numclass1, numclass2), dtype=int)
         for i, c1 in enumerate(l1):
@@ -168,6 +167,6 @@ def clustering(Cluster, feature, true_labels, age=False):
     predict_labels = Cluster.fit_predict(f_adj)
     cm = clustering_metrics(true_labels, predict_labels)
     db = -metrics.davies_bouldin_score(f_adj, predict_labels)
-    acc, nmi, f1_macro, adjscore = cm.evaluationClusterModelFromLabel()
+    acc, nmi, f1_macro, ari = cm.evaluationClusterModelFromLabel()
 
-    return db, acc, nmi, f1_macro, adjscore, Cluster.cluster_centers_
+    return db, acc, nmi, f1_macro, ari, Cluster.cluster_centers_

@@ -21,6 +21,18 @@ def tsne(embeds, gnd, args):
     plt.show()
 
 
+def plot_centers(embeds, centers, gnd, epoch):
+    sns.set(rc={'figure.figsize': (11.7, 8.27)})
+    palette = sns.color_palette("bright", len(np.unique(gnd)))
+    tsne = TSNE(n_components=2, perplexity=30)
+    X_embedded = tsne.fit_transform(embeds)
+    centers_embedded = tsne.fit_transform(centers)
+    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=gnd, legend='full', palette=palette)
+    plt.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='red', marker='X')
+    plt.title('T-SNE embeds and centers, epoch: {}'.format(epoch))
+    plt.savefig('figures/kspace/tsne/epochs/epoch_{}'.format(epoch))
+    plt.show()
+
 def plot_results(config, pivot='Learning Rate'):
 
     filepath = 'figures/kspace/{}'.format(config['Model'])

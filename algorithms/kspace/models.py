@@ -5,7 +5,7 @@ from .utils import lrelu, ClusterLoss
 loss_tracker = tf.keras.metrics.Mean(name="loss")
 mse_loss = tf.keras.losses.MeanSquaredError()
 cluster_loss = ClusterLoss()
-
+initializer = tf.keras.initializers.GlorotNormal
 
 class VAE(tf.keras.Model):
     def __init__(self, dims, output_dim, dropout):
@@ -119,10 +119,18 @@ class AE(tf.keras.Model):
             encoder_layers.append(tf.keras.layers.Dropout(dropout))
             if i != layers - 1:
                 activation = lrelu
-                encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
+                encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation, kernel_initializer=initializer))
             else:
                 activation = None
-                encoder_layers.append(tf.keras.layers.Dense(dims[i] + num_centers*dims[i], activation=activation))
+                encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation, kernel_initializer=initializer))
+
+        cluster_layers = list()
+        for i in range(1):
+            cluster_layers.append(tf.keras.layers.Dropout(dropout))
+            activation = lrelu
+            cluster_layers.append(tf.keras.layers.Dense(self.num_centers*dims[i], activation=activation, kernel_initializer=initializer))
+
+        latent_dim = dims[i]
 
         dims.reverse()
         decoder_layers = list()
@@ -130,31 +138,32 @@ class AE(tf.keras.Model):
             decoder_layers.append(tf.keras.layers.Dropout(dropout))
             if i != layers:
                 activation = lrelu
-                decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation))
+                decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation, kernel_initializer=initializer))
             else:
                 activation = None  # linear last layer
-                decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation))
+                decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation, kernel_initializer=initializer))
 
         self.encoder = tf.keras.Sequential(encoder_layers)
+        self.cluster_generator = tf.keras.Sequential(cluster_layers)
         self.decoder = tf.keras.Sequential(decoder_layers)
 
         self.alphas = tf.convert_to_tensor(alphas, dtype=tf.float32, name='alphas')
         self.alpha = tf.Variable(0, trainable=False, dtype=tf.float32)
 
+        self.centers = tf.random.normal([num_centers, latent_dim], mean=0.0, stddev=1.0, dtype=tf.float32, seed=123)
+        
     def train_step(self, data):
         x, y = data
         with tf.GradientTape() as tape:
-            y_pred = self(x)
+            z = self.encoder(x)
+            y_pred = self.decoder(z)
 
-            encoded = self.encoder(x)
-            z, centers = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1) # the first <embedding_size> entries correspond to the embedding
-            z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
-            centers = tf.reshape(centers, [tf.shape(z)[0], self.num_centers, -1]) # from (batch_size, num_centers*emb_dim) to (batch_size, num_centers, emb_dim)
-
+            centers = self.cluster_generator(z)
+            self.centers = tf.reshape(centers, [self.num_centers, -1])
             # MSE + the Q optimization loss with alpha regularization factors
             rec_loss = mse_loss(y, y_pred)
-            c_loss = cluster_loss(z, centers)
-            loss = rec_loss +  self.alpha * c_loss
+            c_loss = cluster_loss(z, self.centers)
+            loss = rec_loss + self.alpha * c_loss
 
         # Compute gradients
         gradients = tape.gradient(loss, self.trainable_variables)
@@ -165,15 +174,12 @@ class AE(tf.keras.Model):
         return {'loss': loss_tracker.result(), 'Reconstruction': rec_loss, 'Clustering': c_loss}
 
     def call(self, x):
-        encoded = self.encoder(x)
-        z, _ = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1) # keep only the embedding values
+        z = self.encoder(x)
         decoded = self.decoder(z)
         return decoded
 
     def embed(self, x):
-        encoded = self.encoder(x, training=False)
-        z, _ = tf.split(encoded, [self.dims[-1], encoded.shape[1] - self.dims[-1]], 1)
-        return z
+        return self.encoder(x, training=False)
 
 
 
