@@ -111,6 +111,7 @@ class AE(tf.keras.Model):
 
         self.dims = dims[:] # the slice operator means that this is a shallow copy. Note the dims.reverse() below. self.dims needs the original list
         self.num_centers = num_centers
+        latent_dim = self.dims[-1]
 
         layers = len(dims)
 
@@ -122,15 +123,11 @@ class AE(tf.keras.Model):
                 encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation, kernel_initializer=initializer))
             else:
                 activation = None
-                encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation, kernel_initializer=initializer))
+                encoder_layers.append(tf.keras.layers.Dense(latent_dim, activation=activation, kernel_initializer=initializer))
 
         cluster_layers = list()
-        for i in range(1):
-            cluster_layers.append(tf.keras.layers.Dropout(dropout))
-            activation = lrelu
-            cluster_layers.append(tf.keras.layers.Dense(self.num_centers*dims[i], activation=activation, kernel_initializer=initializer))
-
-        latent_dim = dims[i]
+        cluster_layers.append(tf.keras.layers.Dropout(dropout))
+        cluster_layers.append(tf.keras.layers.Dense(self.num_centers*latent_dim, activation=lrelu, kernel_initializer=initializer))
 
         dims.reverse()
         decoder_layers = list()
@@ -150,7 +147,7 @@ class AE(tf.keras.Model):
         self.alphas = tf.convert_to_tensor(alphas, dtype=tf.float32, name='alphas')
         self.alpha = tf.Variable(0, trainable=False, dtype=tf.float32)
 
-        self.centers = tf.random.normal([num_centers, latent_dim], mean=0.0, stddev=1.0, dtype=tf.float32, seed=123)
+        # self.centers = tf.random.normal([num_centers, latent_dim], mean=0.0, stddev=1.0, dtype=tf.float32, seed=123)
         
     def train_step(self, data):
         x, y = data
@@ -159,7 +156,8 @@ class AE(tf.keras.Model):
             y_pred = self.decoder(z)
 
             centers = self.cluster_generator(z)
-            self.centers = tf.reshape(centers, [self.num_centers, -1])
+            centers = tf.reshape(centers, [tf.shape(centers)[0], self.num_centers, -1]) # batch size x (centers*dim) -> batch size x centers x dim
+            self.centers = tf.reduce_mean(centers, axis=0)  # mean across batch dim. batch size x centers x dim -> 1 x centers x dim
             # MSE + the Q optimization loss with alpha regularization factors
             rec_loss = mse_loss(y, y_pred)
             c_loss = cluster_loss(z, self.centers)

@@ -7,6 +7,7 @@ from tensorflow.python.keras.losses import LossFunctionWrapper
 from tensorflow.python.keras.utils import losses_utils
 from utils.metrics import clustering_metrics
 from utils.plots import plot_centers
+import datetime
 
 
 def lrelu(x, leak=0.2, name="lrelu"):
@@ -99,15 +100,16 @@ class PlotCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_begin(self, epoch, logs=None):
 
-        if epoch % 100 == 0:
+        if epoch == 0 or (epoch + 1) % 50 == 0:
             z = self.model.embed(self.data)
             centers = self.model.centers
             plot_centers(z, centers, self.gnd, epoch)
 
 
 def cluster_loss(z, centers):
-    centers = tf.reshape(centers, [-1, centers[0], centers[1]])
+    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
 
+    centers = tf.reshape(centers, [1, tf.shape(centers)[0], tf.shape(centers)[1]])
     # partial = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
     # nominator = tf.math.reciprocal(1 + partial)
     # denominator = tf.math.reduce_sum(tf.math.reciprocal(1 + partial), axis=1)
@@ -116,11 +118,12 @@ def cluster_loss(z, centers):
     # q = nominator / denominator
     # q_norm = 1 - q
     # q_norm = tf.math.log(q_norm + 0.00001)  # e for 0 logs
-    # return tf.reduce_sum(q_norm, axis=-1)
+    # return tf.reduce_sum(q_norm, axis=1)
 
     q = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
     q = tf.math.log(q + 0.00001)
-    return tf.reduce_sum(q, axis=-1)
+
+    return tf.reduce_sum(q, axis=1)
 
 
 class ClusterLoss(LossFunctionWrapper):
@@ -139,9 +142,10 @@ def l1_normalize(x, axis=None, epsilon=1e-12, name=None):
 
 def assign_clusters(z, c, gnd):
     m = len(np.unique(gnd))
-
+    tf.print(tf.shape(z))
+    tf.print(tf.shape(c))
     z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])  # reshape for broadcasting
-    c = tf.reshape(c, [tf.shape(z)[0], m, -1])  # from (batch_size, num_centers*emb_dim) to (batch_size, num_centers, emb_dim)
+    c = tf.reshape(c, [tf.shape(c)[0], m, -1])  # from (batch_size, num_centers*emb_dim) to (batch_size, num_centers, emb_dim)
 
     diffs = tf.squeeze(tf.norm(z - c, ord='euclidean', axis=2))
     predicted = tf.argmin(diffs, axis=1)  # for every instance find the cluster with the smallest difference

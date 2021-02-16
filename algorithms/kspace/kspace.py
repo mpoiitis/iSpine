@@ -3,17 +3,16 @@ import os
 import numpy as np
 import scipy.sparse as sp
 from sklearn.cluster import KMeans
-from .utils import PlotCallback
-from utils.utils import load_data_trunc
 import tensorflow as tf
 from .models import AE, VAE
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
-from tensorflow.keras.callbacks import EarlyStopping, CSVLogger
-from utils.utils import save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
+from tensorflow.keras.callbacks import EarlyStopping
+from utils.utils import load_data_trunc, save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
 from .utils import AlphaRateScheduler, alpha_scheduler, get_alpha, assign_clusters
 import datetime
-
+from utils.plots import plot_centers
+from .utils import PlotCallback
 
 def run_kspace_grid_search():
     from tensorboard.plugins.hparams import api as hp
@@ -119,7 +118,8 @@ def kspace(args, feature, X, gnd):
 
     # SAVE EMBEDDINGS
     if args.save:
-        embeds, _ = model.embed(feature)
+        embeds = model.embed(feature)
+
         embeds_to_save = [e.numpy() for e in embeds]
         save_results(args, save_location, embeds_to_save)
 
@@ -146,21 +146,20 @@ def train(args, feature, X, gnd, model):
 
     # CALLBACKS
     # es = EarlyStopping(monitor='loss', patience=args.early_stopping)
-    # csv_location = 'output/kspace/logs/{}amax_{}step.csv'.format(args.a_max, args.alpha)
-    # csv_logger = CSVLogger(csv_location)
-    pc = PlotCallback(gnd, input)
     alpha_cb = AlphaRateScheduler(alpha_scheduler)
-
+    pc = PlotCallback(gnd, input)
     logdir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir)
+
     # TRAINING
     # input is the plain feature matrix and output is the k-order convoluted. The model reconstructs the convolution!
     print('Training model for {}-order convolution'.format(args.power))
     # model.fit(input, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True, callbacks=[alpha_cb, tensorboard_callback, pc], verbose=1)
     model.fit(input, X, epochs=args.epochs, batch_size=args.batch_size, shuffle=True,
-              callbacks=[alpha_cb, tensorboard_callback], verbose=1)
+              callbacks=[alpha_cb], verbose=1)
     embeds = model.embed(input)
     centers = model.centers
+
     # db, acc, nmi, f1, ari, centers = clustering(Cluster, embeds, gnd)
     acc, nmi, f1, ari = assign_clusters(embeds, centers, gnd)
     print("Optimization Finished!")
