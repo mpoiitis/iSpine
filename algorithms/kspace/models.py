@@ -99,13 +99,12 @@ class VAE(tf.keras.Model):
 
 
 class AE(tf.keras.Model):
-    def __init__(self, dims, output_dim, dropout, num_centers, alphas):
+    def __init__(self, dims, output_dim, dropout, num_centers):
         """
         :param dims: list of integers corresponding to each layer's dimensions
         :param output_dim: int. the dimension of the reconstructed output
         :param dropout: float. dropout rate
         :param num_centers: int, the number of centers to calculate
-        :param alphas: np.array with the alpha rate for every epoch. Used in callback to update alpha
         """
         super(AE, self).__init__()
 
@@ -125,9 +124,9 @@ class AE(tf.keras.Model):
                 activation = None
                 encoder_layers.append(tf.keras.layers.Dense(latent_dim, activation=activation, kernel_initializer=initializer))
 
-        cluster_layers = list()
-        cluster_layers.append(tf.keras.layers.Dropout(dropout))
-        cluster_layers.append(tf.keras.layers.Dense(self.num_centers*latent_dim, activation=lrelu, kernel_initializer=initializer))
+        # cluster_layers = list()
+        # cluster_layers.append(tf.keras.layers.Dropout(dropout))
+        # cluster_layers.append(tf.keras.layers.Dense(self.num_centers*latent_dim, activation=lrelu, kernel_initializer=initializer))
 
         dims.reverse()
         decoder_layers = list()
@@ -141,35 +140,10 @@ class AE(tf.keras.Model):
                 decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation, kernel_initializer=initializer))
 
         self.encoder = tf.keras.Sequential(encoder_layers)
-        self.cluster_generator = tf.keras.Sequential(cluster_layers)
+        # self.cluster_generator = tf.keras.Sequential(cluster_layers)
         self.decoder = tf.keras.Sequential(decoder_layers)
 
-        self.alphas = tf.convert_to_tensor(alphas, dtype=tf.float32, name='alphas')
-        self.alpha = tf.Variable(0, trainable=False, dtype=tf.float32)
-
-        # self.centers = tf.random.normal([num_centers, latent_dim], mean=0.0, stddev=1.0, dtype=tf.float32, seed=123)
-        
-    def train_step(self, data):
-        x, y = data
-        with tf.GradientTape() as tape:
-            z = self.encoder(x)
-            y_pred = self.decoder(z)
-
-            centers = self.cluster_generator(z)
-            centers = tf.reshape(centers, [tf.shape(centers)[0], self.num_centers, -1]) # batch size x (centers*dim) -> batch size x centers x dim
-            self.centers = tf.reduce_mean(centers, axis=0)  # mean across batch dim. batch size x centers x dim -> 1 x centers x dim
-            # MSE + the Q optimization loss with alpha regularization factors
-            rec_loss = mse_loss(y, y_pred)
-            c_loss = cluster_loss(z, self.centers)
-            loss = rec_loss + self.alpha * c_loss
-
-        # Compute gradients
-        gradients = tape.gradient(loss, self.trainable_variables)
-        # Update weights
-        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-
-        loss_tracker.update_state(loss)
-        return {'loss': loss_tracker.result(), 'Reconstruction': rec_loss, 'Clustering': c_loss}
+        self.centers = tf.random.normal((7, latent_dim), mean=0.0, stddev=1.0)
 
     def call(self, x):
         z = self.encoder(x)

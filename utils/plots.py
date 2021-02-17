@@ -5,8 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import os
-import tensorflow as tf
-import io
+
 
 def tsne(embeds, gnd, args):
     sns.set(rc={'figure.figsize': (11.7, 8.27)})
@@ -29,27 +28,11 @@ def plot_centers(embeds, centers, gnd, epoch):
     X_embedded = tsne.fit_transform(embeds)
     centers_embedded = tsne.fit_transform(centers)
     sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=gnd, legend='full', palette=palette)
-    plt.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='red', marker='X')
+    plt.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='black', marker='X')
     plt.title('T-SNE embeds and centers, epoch: {}'.format(epoch))
     plt.tight_layout()
+    plt.savefig('figures/kspace/tsne/epochs/epoch_{}.png'.format(epoch), format='png')
     plt.show()
-
-
-def plot_to_image(figure):
-  """Converts the matplotlib plot specified by 'figure' to a PNG image and
-  returns it. The supplied figure is closed and inaccessible after this call."""
-  # Save the plot to a PNG in memory.
-  buf = io.BytesIO()
-  plt.savefig(buf, format='png')
-  # Closing the figure prevents it from being displayed directly inside
-  # the notebook.
-  plt.close(figure)
-  buf.seek(0)
-  # Convert PNG buffer to TF image
-  image = tf.image.decode_png(buf.getvalue(), channels=4)
-  # Add the batch dimension
-  image = tf.expand_dims(image, 0)
-  return image
 
 
 def plot_results(config, pivot='Learning Rate'):
