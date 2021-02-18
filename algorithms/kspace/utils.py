@@ -26,8 +26,8 @@ def get_alpha(s_max, epochs, type='linear'):
     if type == 'linear':
         return np.linspace(0, s_max, epochs)
     elif type == 'exp':
-        zeros = [0] * 100
-        return np.array(zeros + [np.exp((np.log(s_max + 1) / epochs) * i) for i in range(1, epochs-99)])
+        zeros = [0] * 50
+        return np.array(zeros + [np.exp((np.log(s_max + 1) / epochs) * i) for i in range(1, epochs-49)])
     elif type == 'zeros':
         return [0] * epochs
     else:

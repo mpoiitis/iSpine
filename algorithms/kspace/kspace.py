@@ -6,9 +6,9 @@ import tensorflow as tf
 from .models import AE, VAE
 from tensorflow.keras.optimizers import Adam
 from utils.utils import load_data_trunc, save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
-from .utils import get_alpha, assign_clusters
+from .utils import get_alpha, assign_clusters, ClusterLoss
 from utils.plots import plot_centers
-from .utils import ClusterLoss
+from tensorflow_probability import distributions as tfd
 
 seed = 123
 np.random.seed(seed)
@@ -222,11 +222,12 @@ def train(args, feature, X, gnd, model):
         for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
             with tf.GradientTape() as tape:
                 z = model.encoder(x_batch_train)
+                if step == 0:
+                    zs = z
+                else:
+                    zs = tf.concat([zs, z], axis=0)
                 y_pred = model.decoder(z)
 
-                # centers = model.cluster_generator(z)
-                # centers = tf.reshape(centers, [tf.shape(centers)[0], m, -1])  # batch size x (centers*dim) -> batch size x centers x dim
-                # centers = tf.reduce_mean(centers, axis=0)
                 rec_loss = mse_loss(y_batch_train, y_pred)
                 c_loss = cluster_loss(z, model.centers)
                 loss = rec_loss + alphas[epoch] * c_loss
@@ -238,13 +239,16 @@ def train(args, feature, X, gnd, model):
             rec_epoch_loss.append(rec_loss)
             clust_epoch_loss.append(c_loss)
 
-        if epoch % 50 == 0:
-            z = model.embed(input)
-            centers = model.centers
-            # centers = model.cluster_generator(z, training=False)
-            # centers = tf.reshape(centers, [tf.shape(centers)[0], m, -1])
-            # centers = tf.reduce_mean(centers, axis=0)
-            plot_centers(z, centers, gnd, epoch)
+        # update centers every 10 epochs to avoid instability
+        if epoch % 10 == 0 or epoch == (args.epochs - 1):
+            mean, var = tf.nn.moments(zs, axes=0)  # z instances are considered a distribution from which we sample the first and second moments
+            dist = tfd.Normal(loc=mean, scale=var)
+            model.centers = dist.sample([m])
+
+        # if epoch % 50 == 0:
+        #     z = model.embed(input)
+        #     centers = model.centers
+        #     plot_centers(z, centers, gnd, epoch)
         print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f} Clustering: {:.4f}'.format(epoch, np.mean(epoch_loss), np.mean(rec_epoch_loss), np.mean(clust_epoch_loss)))
 
     embeds = model.embed(input)

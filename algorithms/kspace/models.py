@@ -124,10 +124,6 @@ class AE(tf.keras.Model):
                 activation = None
                 encoder_layers.append(tf.keras.layers.Dense(latent_dim, activation=activation, kernel_initializer=initializer))
 
-        # cluster_layers = list()
-        # cluster_layers.append(tf.keras.layers.Dropout(dropout))
-        # cluster_layers.append(tf.keras.layers.Dense(self.num_centers*latent_dim, activation=lrelu, kernel_initializer=initializer))
-
         dims.reverse()
         decoder_layers = list()
         for i in range(1, layers + 1):
@@ -140,7 +136,6 @@ class AE(tf.keras.Model):
                 decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation, kernel_initializer=initializer))
 
         self.encoder = tf.keras.Sequential(encoder_layers)
-        # self.cluster_generator = tf.keras.Sequential(cluster_layers)
         self.decoder = tf.keras.Sequential(decoder_layers)
 
         self.centers = tf.random.normal((7, latent_dim), mean=0.0, stddev=1.0)

@@ -59,6 +59,7 @@ class clustering_metrics():
         numclass2 = len(l2)
 
         if numclass1 != numclass2:
+            print(numclass1, numclass2)
             raise Exception('Class Not equal, Error!!!!')
 
         cost = np.zeros((numclass1, numclass2), dtype=int)
