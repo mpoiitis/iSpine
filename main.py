@@ -108,6 +108,7 @@ def parse_args():
     kSpace_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
     kSpace_parser.add_argument("--power", default=8, type=int, help="The upper bound of convolution order to search. Default is 8.")
     kSpace_parser.add_argument("--a-max", default=5, type=float, help="The upper bound of alpha rate. Default is 5.")
+    kSpace_parser.add_argument("--slack", default=50, type=int, help="Number of epochs that clustering loss is not considered. Default is 50.")
     kSpace_parser.add_argument("--alpha", default='linear', type=str, choices=['linear', 'exp', 'zeros'], help="How to calculate alpha for every training epoch. [linear, exp]. Default is linear")
     kSpace_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 

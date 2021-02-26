@@ -98,6 +98,45 @@ class VAE(tf.keras.Model):
         return z
 
 
+class Encoder(tf.keras.Model):
+    def __init__(self, dims, dropout):
+        super(Encoder, self).__init__()
+
+        encoder_layers = list()
+        for i in range(len(dims)):
+            encoder_layers.append(tf.keras.layers.Dropout(dropout))
+            encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=tf.nn.relu))
+
+        self.encoder = tf.keras.Sequential(encoder_layers)
+
+    def call(self, x):
+        e = self.encoder(x)
+        return e
+
+
+class Decoder(tf.keras.Model):
+    def __init__(self, dims, output_dim, dropout):
+        super(Decoder, self).__init__()
+
+        layers = len(dims)
+
+        dims = dims[::-1]  # reverse dimensions for the decoder
+        decoder_layers = list()
+        for i in range(1, layers + 1):
+            decoder_layers.append(tf.keras.layers.Dropout(dropout))
+            if i != layers:
+                decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=tf.nn.relu))
+            else:  # linear last layer
+                decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=None))
+
+        self.decoder = tf.keras.Sequential(decoder_layers)
+
+    def call(self, x):
+        y = self.decoder(x)
+        # return tf.keras.activations.sigmoid(y)
+        return y
+
+
 class AE(tf.keras.Model):
     def __init__(self, dims, output_dim, dropout, num_centers):
         """
@@ -108,47 +147,31 @@ class AE(tf.keras.Model):
         """
         super(AE, self).__init__()
 
-        self.dims = dims[:] # the slice operator means that this is a shallow copy. Note the dims.reverse() below. self.dims needs the original list
         self.num_centers = num_centers
-        latent_dim = self.dims[-1]
+        self.encoder = Encoder(dims, dropout)
+        self.decoder = Decoder(dims, output_dim, dropout)
 
-        layers = len(dims)
-
-        encoder_layers = list()
-        for i in range(layers):
-            encoder_layers.append(tf.keras.layers.Dropout(dropout))
-            if i != layers - 1:
-                activation = lrelu
-                encoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation, kernel_initializer=initializer))
-            else:
-                activation = None
-                encoder_layers.append(tf.keras.layers.Dense(latent_dim, activation=activation, kernel_initializer=initializer))
-
-        # cluster_layers = list()
-        # cluster_layers.append(tf.keras.layers.Dropout(dropout))
-        # cluster_layers.append(tf.keras.layers.Dense(self.num_centers*latent_dim, activation=lrelu, kernel_initializer=initializer))
-
-        dims.reverse()
-        decoder_layers = list()
-        for i in range(1, layers + 1):
-            decoder_layers.append(tf.keras.layers.Dropout(dropout))
-            if i != layers:
-                activation = lrelu
-                decoder_layers.append(tf.keras.layers.Dense(dims[i], activation=activation, kernel_initializer=initializer))
-            else:
-                activation = None  # linear last layer
-                decoder_layers.append(tf.keras.layers.Dense(output_dim, activation=activation, kernel_initializer=initializer))
-
-        self.encoder = tf.keras.Sequential(encoder_layers)
-        # self.cluster_generator = tf.keras.Sequential(cluster_layers)
-        self.decoder = tf.keras.Sequential(decoder_layers)
-
-        self.centers = tf.random.normal((7, latent_dim), mean=0.0, stddev=1.0)
+        embedding_dim = dims[-1]
+        centers = tf.random.normal((7, embedding_dim), mean=0.0, stddev=1.0)
+        self.centers = tf.Variable(centers, trainable=True, dtype=tf.float32, name='centers')
 
     def call(self, x):
         z = self.encoder(x)
         decoded = self.decoder(z)
         return decoded
+
+    def predict(self, x):
+        z = self.encoder(x, training=False)
+        z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
+        centers = tf.reshape(self.centers, [1, tf.shape(self.centers)[0], tf.shape(self.centers)[1]])
+
+        partial = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
+        nominator = 1 / (1 + partial)
+        denominator = tf.math.reduce_sum(1 / (1 + partial), axis=1)
+        denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+        q = nominator / denominator
+        # argmax because q contains similarities
+        return tf.argmax(q, axis=1)
 
     def embed(self, x):
         return self.encoder(x, training=False)

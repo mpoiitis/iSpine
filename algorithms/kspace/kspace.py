@@ -3,10 +3,11 @@ import os
 import numpy as np
 import scipy.sparse as sp
 import tensorflow as tf
+from sklearn.cluster import KMeans
 from .models import AE, VAE
 from tensorflow.keras.optimizers import Adam
 from utils.utils import load_data_trunc, save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
-from .utils import get_alpha, assign_clusters
+from .utils import get_alpha, calc_metrics
 from utils.plots import plot_centers
 from .utils import ClusterLoss
 
@@ -42,7 +43,6 @@ def kspace(args, feature, X, gnd):
             [str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
 
     m = len(np.unique(gnd))
-    # alphas = get_alpha(args.a_max, args.epochs, args.alpha)
     # CREATE MODEL
     if args.model == 'ae' or args.model == 'dae':
         model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout, num_centers=m)
@@ -82,7 +82,7 @@ def train(args, feature, X, gnd, model):
     :param gnd: ground truth labels
     :param model: the nn to be trained
     """
-    alphas = get_alpha(args.a_max, args.epochs, args.alpha)
+    alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
     # alphas = [0.0, 2.531512052442886e-07, 5.127109637602412e-07, 7.788415088463153e-07, 1.0517091807564772e-06,
     #           1.3314845306682633e-06, 1.6183424272828307e-06, 1.912462166123581e-06, 2.2140275816016986e-06,
     #           2.5232271619186445e-06, 2.840254166877414e-06, 3.1653067486762155e-06, 3.498588075760032e-06,
@@ -223,10 +223,6 @@ def train(args, feature, X, gnd, model):
             with tf.GradientTape() as tape:
                 z = model.encoder(x_batch_train)
                 y_pred = model.decoder(z)
-
-                # centers = model.cluster_generator(z)
-                # centers = tf.reshape(centers, [tf.shape(centers)[0], m, -1])  # batch size x (centers*dim) -> batch size x centers x dim
-                # centers = tf.reduce_mean(centers, axis=0)
                 rec_loss = mse_loss(y_batch_train, y_pred)
                 c_loss = cluster_loss(z, model.centers)
                 loss = rec_loss + alphas[epoch] * c_loss
@@ -238,24 +234,31 @@ def train(args, feature, X, gnd, model):
             rec_epoch_loss.append(rec_loss)
             clust_epoch_loss.append(c_loss)
 
-        if epoch % 50 == 0:
-            z = model.embed(input)
-            centers = model.centers
-            # centers = model.cluster_generator(z, training=False)
-            # centers = tf.reshape(centers, [tf.shape(centers)[0], m, -1])
-            # centers = tf.reduce_mean(centers, axis=0)
-            plot_centers(z, centers, gnd, epoch)
+        if epoch == (args.slack - 1):
+            z = model.encoder(input)
+            kmeans = KMeans(n_clusters=m)
+            predicted = kmeans.fit_predict(z)
+
+            acc, nmi, ari, f1 = calc_metrics(predicted, gnd)
+            print('Acc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+            model.centers.assign(kmeans.cluster_centers_)
+
         print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f} Clustering: {:.4f}'.format(epoch, np.mean(epoch_loss), np.mean(rec_epoch_loss), np.mean(clust_epoch_loss)))
 
-    embeds = model.embed(input)
-    centers = model.centers
-    # centers = model.cluster_generator(embeds, training=False)
-    # centers = tf.reshape(centers, [tf.shape(centers)[0], m, -1])
-    # centers = tf.reduce_mean(centers, axis=0)
+        if epoch % (args.slack - 1) == 0 or epoch == (args.epochs - 1):
+            z = model.embed(input)
+            centers = model.centers.numpy()
+            plot_centers(z, centers, gnd, epoch)
 
-    acc, nmi, f1, ari = assign_clusters(embeds, centers, gnd)
+    # z = model.encoder(input)
+    # kmeans = KMeans(n_clusters=m)
+    # predicted = kmeans.fit_predict(z)
+    # acc, nmi, f1, ari = calc_metrics(predicted, gnd)
+
+    predicted = model.predict(input)
+    acc, nmi, f1, ari = calc_metrics(predicted.numpy(), gnd)
     print("Optimization Finished!")
-    print("ACC: {} F1: {} NMI: {} ARI: {}".format(acc, f1, nmi, ari))
+    print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
 
     return model, acc, nmi, f1, ari
 

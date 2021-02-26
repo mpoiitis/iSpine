@@ -24,9 +24,13 @@ def tsne(embeds, gnd, args):
 def plot_centers(embeds, centers, gnd, epoch):
     figure = plt.figure(figsize=(11.7, 8.27))
     palette = sns.color_palette("bright", len(np.unique(gnd)))
+    data = np.concatenate((embeds, centers), axis=0)
     tsne = TSNE(n_components=2, perplexity=30)
-    X_embedded = tsne.fit_transform(embeds)
-    centers_embedded = tsne.fit_transform(centers)
+    data_embedded = tsne.fit_transform(data)
+
+    X_embedded = data_embedded[:-centers.shape[0], :]
+    centers_embedded = data_embedded[-centers.shape[0]:, :]
+
     sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=gnd, legend='full', palette=palette)
     plt.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='black', marker='X')
     plt.title('T-SNE embeds and centers, epoch: {}'.format(epoch))
