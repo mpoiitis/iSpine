@@ -99,7 +99,6 @@ def parse_args():
 
     kSpace_parser = embedding_subparsers.add_parser('kspace', help='kSPACE algorithm')
     kSpace_parser.add_argument("--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
-    kSpace_parser.add_argument("--model", default='ae', type=str, choices=['ae', 'vae', 'dae', 'dvae'], help="Type of autoencoder. Simple, variational or denoising. Default is ae.")
     kSpace_parser.add_argument('--dims', nargs='+', type=int, default=[200, 100], help='Number of units in hidden layers. Default is [200, 100]. Example --dims 500 200')
     kSpace_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
     kSpace_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
@@ -109,7 +108,8 @@ def parse_args():
     kSpace_parser.add_argument("--power", default=8, type=int, help="The upper bound of convolution order to search. Default is 8.")
     kSpace_parser.add_argument("--a-max", default=5, type=float, help="The upper bound of alpha rate. Default is 5.")
     kSpace_parser.add_argument("--slack", default=50, type=int, help="Number of epochs that clustering loss is not considered. Default is 50.")
-    kSpace_parser.add_argument("--alpha", default='linear', type=str, choices=['linear', 'exp', 'zeros'], help="How to calculate alpha for every training epoch. [linear, exp]. Default is linear")
+    kSpace_parser.add_argument("--alpha", default='linear', type=str, choices=['linear', 'exp', 'zeros'], help="How to calculate alpha for every training epoch. [linear, exp, zeros]. Default is linear")
+    kSpace_parser.add_argument("--slack", default=50, type=int, help="Number of epochs that clustering loss is not considered. Default is 50.")
     kSpace_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 
     args = parser.parse_args()
