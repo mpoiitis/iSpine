@@ -40,12 +40,13 @@ def cluster_loss(z, centers):
     centers_r = tf.reshape(centers, [1, tf.shape(centers)[0], tf.shape(centers)[1]])
     partial = tf.math.pow(tf.squeeze(tf.norm(z - centers_r, ord='euclidean', axis=2)), 2)
     nominator = 1 / (1 + partial)
-    denominator = tf.math.reduce_sum(1 / (1 + partial), axis=1)
-    denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
-    q = nominator / denominator
+    # denominator = tf.math.reduce_sum(1 / (1 + partial), axis=1)
+    # denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+    # q = nominator / denominator
+    q = nominator
     q_norm = 1 - q
     q_norm = tf.math.log(q_norm + 0.00001)  # e for 0 logs
-    return tf.reduce_sum(q_norm, axis=1) + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
+    return tf.reduce_sum(q_norm, axis=1)  # + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
 
 
 class ClusterLoss(LossFunctionWrapper):

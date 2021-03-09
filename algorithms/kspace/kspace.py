@@ -81,15 +81,15 @@ def train(args, feature, X, gnd, model):
 
     m = len(np.unique(gnd))  # number of clusters according to ground truth
 
-    # ADD NOISE IN CASE OF DENOISING MODELS
-    feature
-
     train_dataset = tf.data.Dataset.from_tensor_slices((feature, X))
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(args.batch_size)
 
     mse_loss = tf.keras.losses.MeanSquaredError()
     cluster_loss = ClusterLoss()
 
+    tb_loss = list()
+    tb_c_loss = list()
+    tb_rec_loss = list()
     for epoch in range(args.epochs):
         epoch_loss = list()
         rec_epoch_loss = list()
@@ -111,6 +111,7 @@ def train(args, feature, X, gnd, model):
             clust_epoch_loss.append(c_loss)
 
         if epoch == (args.slack - 1):
+        # if epoch == 0 or epoch == 50:
             z = model.encoder(feature)
             kmeans = KMeans(n_clusters=m)
             predicted = kmeans.fit_predict(z)
@@ -119,22 +120,42 @@ def train(args, feature, X, gnd, model):
             print('Acc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
             model.centers.assign(kmeans.cluster_centers_)
 
-        print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f} Clustering: {:.4f}'.format(epoch, np.mean(epoch_loss), np.mean(rec_epoch_loss), np.mean(clust_epoch_loss)))
+        epoch_loss = np.mean(epoch_loss)
+        rec_loss = np.mean(rec_epoch_loss)
+        clust_loss = np.mean(clust_epoch_loss)
+        tb_loss.append(epoch_loss)
+        tb_c_loss.append(clust_loss)
+        tb_rec_loss.append(rec_loss)
+        print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f} Clustering: {:.4f}'.format(epoch, epoch_loss, rec_loss, clust_loss))
 
-        if epoch % (args.slack - 1) == 0 or epoch == (args.epochs - 1):
-            z = model.embed(feature)
-            centers = model.centers.numpy()
-            plot_centers(z, centers, gnd, epoch)
+        # if epoch % (args.slack - 1) == 0 or epoch == (args.epochs - 1):
+        #     z = model.embed(feature)
+        #     centers = model.centers.numpy()
+        #     plot_centers(z, centers, gnd, epoch)
 
     # z = model.encoder(input)
     # kmeans = KMeans(n_clusters=m)
     # predicted = kmeans.fit_predict(z)
     # acc, nmi, f1, ari = calc_metrics(predicted, gnd)
 
-    predicted = model.predict(input)
+    predicted = model.predict(feature)
     acc, nmi, f1, ari = calc_metrics(predicted.numpy(), gnd)
     print("Optimization Finished!")
     print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+
+    import matplotlib.pyplot as plt
+
+    plt.plot(tb_loss, color='black', label='total')
+    plt.plot(tb_rec_loss, color='red', label='reconstruction')
+    plt.plot(tb_c_loss, color='blue', label='clustering')
+    plt.title('Losses for each epoch')
+    plt.xlabel('Epoch')
+    # plt.ylabel('Log Value')
+    # plt.yscale('log')
+    plt.ylabel('Value')
+    plt.legend()
+    plt.savefig('figures/kspace/tsne/epochs/losses.png', format='png')
+    plt.show()
 
     return model, acc, nmi, f1, ari
 

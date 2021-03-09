@@ -167,9 +167,10 @@ class AE(tf.keras.Model):
 
         partial = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
         nominator = 1 / (1 + partial)
-        denominator = tf.math.reduce_sum(1 / (1 + partial), axis=1)
-        denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
-        q = nominator / denominator
+        # denominator = tf.math.reduce_sum(1 / (1 + partial), axis=1)
+        # denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+        # q = nominator / denominator
+        q = nominator
         # argmax because q contains similarities
         return tf.argmax(q, axis=1)
 
