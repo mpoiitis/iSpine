@@ -6,7 +6,7 @@ import tensorflow as tf
 from sklearn.cluster import KMeans
 from .models import AE, VAE
 from tensorflow.keras.optimizers import Adam
-from utils.utils import load_data_trunc, save_results, salt_and_pepper, largest_eigval_smoothing_filter, preprocess_adj
+from utils.utils import load_data_trunc, save_results, largest_eigval_smoothing_filter, preprocess_adj
 from .utils import get_alpha, calc_metrics
 from utils.plots import plot_centers
 from .utils import ClusterLoss
@@ -37,19 +37,14 @@ def run_kspace(args):
 
 
 def kspace(args, feature, X, gnd):
-    save_location = 'output/{}_{}_{}_power{}_epochs{}_dims{}-batch{}-lr{}-drop{}'.format(args.input, args.method,
-                                                                                         args.model, args.power,
+    save_location = 'output/{}_{}_power{}_epochs{}_dims{}-batch{}-lr{}-drop{}'.format(args.input, args.method, args.power,
                                                                                          args.epochs, ",".join(
             [str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
 
     m = len(np.unique(gnd))
     # CREATE MODEL
-    if args.model == 'ae' or args.model == 'dae':
-        model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout, num_centers=m)
-        model.compile(optimizer=Adam(lr=args.learning_rate))
-    else:  # args.model == 'vae' or args.model == 'dvae'
-        model = VAE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout)
-        model.compile(optimizer=Adam(lr=args.learning_rate))
+    model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout, num_centers=m)
+    model.compile(optimizer=Adam(lr=args.learning_rate))
 
     # TRAINING OR LOAD MODEL IF IT EXISTS
     if not os.path.exists(save_location):
@@ -87,12 +82,9 @@ def train(args, feature, X, gnd, model):
     m = len(np.unique(gnd))  # number of clusters according to ground truth
 
     # ADD NOISE IN CASE OF DENOISING MODELS
-    if args.model == 'ae' or args.model == 'vae':
-        input = feature
-    else:
-        input = salt_and_pepper(feature)
+    feature
 
-    train_dataset = tf.data.Dataset.from_tensor_slices((input, X))
+    train_dataset = tf.data.Dataset.from_tensor_slices((feature, X))
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(args.batch_size)
 
     mse_loss = tf.keras.losses.MeanSquaredError()
@@ -119,7 +111,7 @@ def train(args, feature, X, gnd, model):
             clust_epoch_loss.append(c_loss)
 
         if epoch == (args.slack - 1):
-            z = model.encoder(input)
+            z = model.encoder(feature)
             kmeans = KMeans(n_clusters=m)
             predicted = kmeans.fit_predict(z)
 
@@ -130,7 +122,7 @@ def train(args, feature, X, gnd, model):
         print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f} Clustering: {:.4f}'.format(epoch, np.mean(epoch_loss), np.mean(rec_epoch_loss), np.mean(clust_epoch_loss)))
 
         if epoch % (args.slack - 1) == 0 or epoch == (args.epochs - 1):
-            z = model.embed(input)
+            z = model.embed(feature)
             centers = model.centers.numpy()
             plot_centers(z, centers, gnd, epoch)
 
@@ -150,14 +142,14 @@ def train(args, feature, X, gnd, model):
 def write_results(args, ac, nm, f1, ari):
     file_exists = os.path.isfile('output/kspace/results.csv')
     with open('output/kspace/results.csv', 'a') as f:
-        columns = ['Dataset', 'Model', 'Dimensions', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
+        columns = ['Dataset', 'Dimensions', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
                    'A Max', 'A Type', 'Power', 'Accuracy', 'NMI', 'F1', 'ARI']
         writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
 
         if not file_exists:
             writer.writeheader()  # file doesn't exist yet, write a header
         writer.writerow(
-            {'Dataset': args.input, 'Model': args.model, 'Dimensions': ",".join([str(x) for x in args.dims]),
+            {'Dataset': args.input, 'Dimensions': ",".join([str(x) for x in args.dims]),
              'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
              'Dropout': args.dropout, 'A Max': args.a_max, 'A Type': args.alpha, 'Power': args.power,
              'Accuracy': ac, 'NMI': nm, 'F1': f1, 'ARI': ari})
