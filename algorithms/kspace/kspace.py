@@ -90,6 +90,7 @@ def train(args, feature, X, gnd, model):
     tb_loss = list()
     tb_c_loss = list()
     tb_rec_loss = list()
+    alpha = 0
     for epoch in range(args.epochs):
         epoch_loss = list()
         rec_epoch_loss = list()
@@ -101,7 +102,7 @@ def train(args, feature, X, gnd, model):
                 y_pred = model.decoder(z)
                 rec_loss = mse_loss(y_batch_train, y_pred)
                 c_loss = cluster_loss(z, model.centers)
-                loss = rec_loss + alphas[epoch] * c_loss
+                loss = rec_loss + alpha * c_loss # alphas[epoch] * c_loss
 
             gradients = tape.gradient(loss, model.trainable_weights)
             # Update weights
@@ -111,7 +112,6 @@ def train(args, feature, X, gnd, model):
             clust_epoch_loss.append(c_loss)
 
         if epoch == (args.slack - 1):
-        # if epoch == 0 or epoch == 50:
             z = model.encoder(feature)
             kmeans = KMeans(n_clusters=m)
             predicted = kmeans.fit_predict(z)
@@ -120,6 +120,9 @@ def train(args, feature, X, gnd, model):
             print('Acc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
             model.centers.assign(kmeans.cluster_centers_)
 
+            old_lr = model.optimizer.lr.read_value()
+            model.optimizer.lr.assign(0.01 * old_lr)
+            alpha = 0.001
         epoch_loss = np.mean(epoch_loss)
         rec_loss = np.mean(rec_epoch_loss)
         clust_loss = np.mean(clust_epoch_loss)
@@ -128,10 +131,10 @@ def train(args, feature, X, gnd, model):
         tb_rec_loss.append(rec_loss)
         print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f} Clustering: {:.4f}'.format(epoch, epoch_loss, rec_loss, clust_loss))
 
-        # if epoch % (args.slack - 1) == 0 or epoch == (args.epochs - 1):
-        #     z = model.embed(feature)
-        #     centers = model.centers.numpy()
-        #     plot_centers(z, centers, gnd, epoch)
+        if epoch % (args.slack - 1) == 0 or epoch == (args.epochs - 1):
+            z = model.embed(feature)
+            centers = model.centers.numpy()
+            plot_centers(z, centers, gnd, epoch)
 
     # z = model.encoder(input)
     # kmeans = KMeans(n_clusters=m)
