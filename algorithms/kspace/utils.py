@@ -34,25 +34,35 @@ def get_alpha(s_max, epochs, slack, type='linear'):
         return
 
 
-def cluster_loss(z, centers):
-    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
 
+def cluster_q_loss(z, centers):
+    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
     centers_r = tf.reshape(centers, [1, tf.shape(centers)[0], tf.shape(centers)[1]])
     partial = tf.math.pow(tf.squeeze(tf.norm(z - centers_r, ord='euclidean', axis=2)), 2)
-    nominator = 1 / (1 + partial)
-    # denominator = tf.math.reduce_sum(1 / (1 + partial), axis=1)
-    # denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
-    # q = nominator / denominator
-    q = nominator
-    q_norm = 1 - q
-    q_norm = tf.math.log(q_norm + 0.00001)  # e for 0 logs
-    return tf.reduce_sum(q_norm, axis=1)  # + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
+    nominator = 1 - (1 / (1 + partial))
+    denominator = tf.math.reduce_sum(nominator, axis=1)
+    denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+    q = nominator / denominator
+    q_log = tf.math.log(q + 0.00001)  # e for 0 logs
+    return tf.reduce_sum(q_log, axis=1) # + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
 
 
-class ClusterLoss(LossFunctionWrapper):
+def cluster_kl_loss(z, centers):
+    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
+    centers_r = tf.reshape(centers, [1, tf.shape(centers)[0], tf.shape(centers)[1]])
+    partial = tf.math.pow(tf.squeeze(tf.norm(z - centers_r, ord='euclidean', axis=2)), 2)
+    nominator = 1 - (1 / (1 + partial))
+    denominator = tf.math.reduce_sum(nominator, axis=1)
+    denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+    q = nominator / denominator
 
-    def __init__(self, reduction=losses_utils.ReductionV2.AUTO, name='cluster_loss'):
-        super(ClusterLoss, self).__init__(cluster_loss, name=name, reduction=reduction)
+    p_nom = tf.pow(q, 2) / tf.reduce_sum(tf.pow(q, 2), axis=0)
+    p_denom = tf.reduce_sum(p_nom, axis=1)
+    p_denom = tf.reshape(p_denom, [tf.shape(p_denom)[0], 1])
+    p = p_nom / p_denom
+
+    loss = tf.keras.losses.KLDivergence()
+    return loss(p,q)
 
 
 def calc_metrics(Y_pred, Y):

@@ -1,10 +1,9 @@
 import tensorflow as tf
 import numpy as np
-from .utils import lrelu, ClusterLoss
+from .utils import lrelu
 
 loss_tracker = tf.keras.metrics.Mean(name="loss")
 mse_loss = tf.keras.losses.MeanSquaredError()
-cluster_loss = ClusterLoss()
 initializer = tf.keras.initializers.GlorotNormal
 
 class VAE(tf.keras.Model):
@@ -166,12 +165,10 @@ class AE(tf.keras.Model):
         centers = tf.reshape(self.centers, [1, tf.shape(self.centers)[0], tf.shape(self.centers)[1]])
 
         partial = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
-        nominator = 1 / (1 + partial)
-        # denominator = tf.math.reduce_sum(1 / (1 + partial), axis=1)
-        # denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
-        # q = nominator / denominator
-        q = nominator
-        # argmax because q contains similarities
+        nominator = (1 / (1 + partial))
+        denominator = tf.math.reduce_sum(nominator, axis=1)
+        denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+        q = nominator / denominator
         return tf.argmax(q, axis=1)
 
     def embed(self, x):

@@ -36,7 +36,6 @@ def plot_centers(embeds, centers, gnd, epoch):
     plt.title('T-SNE embeds and centers, epoch: {}'.format(epoch))
     plt.tight_layout()
     plt.savefig('figures/kspace/tsne/epochs/epoch_{}.png'.format(epoch), format='png')
-    plt.show()
 
 
 def plot_results(config, pivot='Learning Rate'):
