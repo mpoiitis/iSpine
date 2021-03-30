@@ -164,12 +164,14 @@ class AE(tf.keras.Model):
         z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
         centers = tf.reshape(self.centers, [1, tf.shape(self.centers)[0], tf.shape(self.centers)[1]])
 
-        partial = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
-        nominator = (1 / (1 + partial))
-        denominator = tf.math.reduce_sum(nominator, axis=1)
-        denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
-        q = nominator / denominator
-        return tf.argmax(q, axis=1)
+        # @pavlos # 
+        # partial = tf.math.pow(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), 2)
+        # nominator = (1 / (1 + partial))
+        # denominator = tf.math.reduce_sum(nominator, axis=1)
+        # denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+        # q = nominator / denominator
+        # return tf.argmax(q, axis=1)
+        return tf.argmin(tf.squeeze(tf.norm(z - centers, ord='euclidean', axis=2)), axis=1)
 
     def embed(self, x):
         return self.encoder(x, training=False)
