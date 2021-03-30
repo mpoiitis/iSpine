@@ -7,11 +7,8 @@ from sklearn.cluster import KMeans
 from .models import AE, VAE
 from tensorflow.keras.optimizers import Adam
 from utils.utils import load_data_trunc, save_results, largest_eigval_smoothing_filter, preprocess_adj
-from .utils import get_alpha, calc_metrics
+from .utils import get_alpha, calc_metrics, cluster_q_loss, cluster_kl_loss
 from utils.plots import plot_centers
-from .utils import cluster_kl_loss as cluster_loss
-# @pavlos # 
-from .utils import cluster_q_loss as cluster_q_loss
 
 
 seed = 123
@@ -92,11 +89,7 @@ def train(args, feature, X, gnd, model):
     tb_loss = list()
     tb_c_loss = list()
     tb_rec_loss = list()
-    p = list()
-    q = list()
 
-    # @pavlos 
-    # flag = 1
     for epoch in range(args.epochs):
         epoch_loss = list()
         rec_epoch_loss = list()
@@ -124,13 +117,6 @@ def train(args, feature, X, gnd, model):
             print('\t\t\t\tAcc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100,
                                                                         f1 * 100))
 
-        
-        # @pavlos 
-        # lll = ['weights','centers']
-        # if  not (epoch % 25):
-        #     flag = 1-flag
-        #     print('only {}'.format(lll[flag]))
-
         for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
             with tf.GradientTape() as tape:
                 z = model.encoder(x_batch_train)
@@ -138,27 +124,18 @@ def train(args, feature, X, gnd, model):
                 rec_loss = mse_loss(y_batch_train, y_pred)
 
                 if epoch >= args.slack - 1:
-                    
-                    # @pavlos 
-                    # c_loss = cluster_loss(z, model.centers)
-                    # loss = rec_loss + args.a_max * c_loss # alphas[epoch] * c_loss
-                    c_loss = tf.reduce_mean(cluster_q_loss(z, model.centers))
-                    if epoch < args.slack - 1:
-                        correction_factor = 1
-                    if epoch == args.slack - 1:
-                        correction_factor = abs(rec_loss / c_loss)
-                    c_loss = c_loss*correction_factor
+                    c_loss = cluster_kl_loss(z, model.centers)
+                    # c_loss = tf.reduce_mean(cluster_q_loss(z, model.centers))
+                    correction_factor = abs(rec_loss / c_loss)
+                    c_loss = c_loss * correction_factor
                     loss = rec_loss + alphas[epoch] * c_loss
                 else:
                     loss = rec_loss
 
             if epoch >= args.slack - 1:
-                # @pavlos 
-                # gradients = tape.gradient(loss, model.trainable_weights)
-                # model.optimizer.apply_gradients(zip(gradients, model.trainable_weights))
-                if epoch %2 :
+                if epoch % 5:
                     gradients = tape.gradient(loss, [model.centers])
-                    gradients =  [0.00001*i for i in gradients]
+                    # gradients = [0.00001*i for i in gradients]
                     model.optimizer.apply_gradients(zip(gradients, [model.centers]))
                 else:
                     gradients = tape.gradient(loss, model.encoder.trainable_weights + model.decoder.trainable_weights)
@@ -191,22 +168,16 @@ def train(args, feature, X, gnd, model):
             tb_c_loss.append(np.nan)
             print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f}'.format(epoch, 100*e_loss, 100*r_e_loss))
 
-
-    # @pavlos #
     z = model.encoder(feature)
     kmeans = KMeans(n_clusters=m)
     predicted = kmeans.fit_predict(z)
     acc, nmi, f1, ari = calc_metrics(predicted, gnd)
-
-    # predicted = model.predict(feature)
-    # acc, nmi, f1, ari = calc_metrics(predicted.numpy(), gnd)
     print("Optimization Finished!")
-    print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-    # @pavlos #
+    print('From kMeans: Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+
     m_predicted = model.predict(feature).numpy()
     acc, nmi, ari, f1 = calc_metrics(m_predicted, gnd)
-    print('Acc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100,
-                                                                        f1 * 100))
+    print('From model:  Acc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
 
     import matplotlib.pyplot as plt
     figure = plt.figure(figsize=(11.7, 8.27))
@@ -215,8 +186,6 @@ def train(args, feature, X, gnd, model):
     plt.plot(tb_c_loss, color='blue', label='clustering')
     plt.title('Losses for each epoch')
     plt.xlabel('Epoch')
-    # plt.ylabel('Log Value')
-    # plt.yscale('log')
     plt.ylabel('Value')
     plt.legend()
     plt.savefig('figures/kspace/tsne/epochs/losses.png', format='png')
