@@ -1,9 +1,16 @@
+import tensorflow as tf
 import numpy as np
-import torch
-import torch.nn.functional as F
+from tensorflow.python.keras.losses import LossFunctionWrapper
+from tensorflow.python.keras.utils import losses_utils
 from sklearn import metrics
 from scipy.optimize import linear_sum_assignment
 
+
+def lrelu(x, leak=0.2, name="lrelu"):
+    """
+    Leaky ReLU function
+    """
+    return tf.math.maximum(x, leak * x)
 
 
 def get_alpha(s_max, epochs, slack, type='linear'):
@@ -29,32 +36,33 @@ def get_alpha(s_max, epochs, slack, type='linear'):
 
 
 def cluster_q_loss(z, centers):
-    z = z.view(z.size()[0], 1, z.size()[1])
-    centers_r = centers.view(1, centers.size()[0], centers.size()[1])
-    partial = torch.squeeze(torch.norm(z - centers_r, p=2, dim=2)) ** 2
+    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
+    centers_r = tf.reshape(centers, [1, tf.shape(centers)[0], tf.shape(centers)[1]])
+    partial = tf.math.pow(tf.squeeze(tf.norm(z - centers_r, ord='euclidean', axis=2)), 2)
     nominator = 1 - (1 / (1 + partial))
-    denominator = torch.sum(nominator, dim=1)
-    denominator = denominator.view(denominator.size()[0], 1)
+    denominator = tf.math.reduce_sum(nominator, axis=1)
+    denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
     q = nominator / denominator
-    q_log = torch.log2(q + 0.00001)  # e for 0 logs
-    return torch.sum(q_log, dim=1) # + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
+    q_log = tf.math.log(q + 0.00001)  # e for 0 logs
+    return tf.reduce_sum(q_log, axis=1) # + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
 
 
 def cluster_kl_loss(z, centers):
-    z = z.view(z.size()[0], 1, z.size()[1])
-    centers_r = centers.view(1, centers.size()[0], centers.size()[1])
-    partial = torch.squeeze(torch.norm(z - centers_r, p=2, dim=2)) ** 2
+    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
+    centers_r = tf.reshape(centers, [1, tf.shape(centers)[0], tf.shape(centers)[1]])
+    partial = tf.math.pow(tf.squeeze(tf.norm(z - centers_r, ord='euclidean', axis=2)), 2)
     nominator = 1 - (1 / (1 + partial))
-    denominator = torch.sum(nominator, dim=1)
-    denominator = denominator.view(denominator.size()[0], 1)
+    denominator = tf.math.reduce_sum(nominator, axis=1)
+    denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
     q = nominator / denominator
 
-    p_nom = (q ** 2) / torch.sum(q ** 2, dim=0)
-    p_denom = torch.sum(p_nom, dim=1)
-    p_denom = p_denom.view(p_denom.size()[0], 1)
+    p_nom = tf.pow(q, 2) / tf.reduce_sum(tf.pow(q, 2), axis=0)
+    p_denom = tf.reduce_sum(p_nom, axis=1)
+    p_denom = tf.reshape(p_denom, [tf.shape(p_denom)[0], 1])
     p = p_nom / p_denom
 
-    return F.kl_div(p,q)
+    loss = tf.keras.losses.KLDivergence()
+    return loss(p,q)
 
 
 def calc_metrics(Y_pred, Y):
