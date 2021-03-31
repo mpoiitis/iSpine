@@ -6,7 +6,7 @@ from torch_geometric.nn.inits import reset
 from torch_geometric.nn import GCNConv
 from torch.autograd import Variable
 from collections import OrderedDict
-
+from .utils import cluster_kl_loss
 
 EPS = 1e-15
 MAX_LOGSTD = 10
@@ -53,15 +53,17 @@ class GAE(torch.nn.Module):
         super(GAE, self).__init__()
         self.encoder = encoder
         self.decoder = InnerProductDecoder() if decoder is None else decoder
-        GAE.reset_parameters(self)
 
         embedding_dim = dims[-1]
-        self.centers = torch.randn(7, embedding_dim).requires_grad_()
-        
+        centers = torch.randn(7, embedding_dim, requires_grad=True)
+        self.centers = torch.nn.Parameter(centers)
+        GAE.reset_parameters(self)
+
 
     def reset_parameters(self):
         reset(self.encoder)
         reset(self.decoder)
+        reset(self.centers)
 
 
     def encode(self, *args, **kwargs):
@@ -93,6 +95,15 @@ class GAE(torch.nn.Module):
 
         return pos_loss + neg_loss
 
+    def complex_loss(self, z, alpha, pos_edge_index, neg_edge_index=None):
+        rec_loss = self.recon_loss(z, pos_edge_index, neg_edge_index=neg_edge_index)
+        c_loss = cluster_kl_loss(z, self.centers)
+
+        correction_factor = abs(rec_loss / c_loss)
+        c_loss = c_loss * correction_factor
+        loss = rec_loss + alpha * c_loss
+
+        return loss
 
     def test(self, z, pos_edge_index, neg_edge_index):
         """Given latent variables, positive edges and negative edges, computes area under the ROC curve (AUC)

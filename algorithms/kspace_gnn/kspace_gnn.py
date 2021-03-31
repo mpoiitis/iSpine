@@ -6,7 +6,8 @@ from torch_geometric.transforms import NormalizeFeatures
 from torch_geometric.utils import train_test_split_edges
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.cluster import KMeans
-from .utils import get_alpha, calc_metrics, cluster_kl_loss
+from utils.plots import plot_centers
+from .utils import get_alpha, calc_metrics
 from .models import GAE, GCNEncoder
 
 
@@ -62,6 +63,9 @@ def run_kspace_gnn(args):
     data.train_mask = data.val_mask = data.test_mask = None # reset masks
 
     original_data = data.clone() # keep original data for the last evaluation step
+    y = original_data.y.cpu().detach().numpy()
+    m = len(np.unique(y)) # number of clusters
+
     data = train_test_split_edges(data) # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
     model = GAE(args.dims, GCNEncoder(args.dims, args.dropout))
 
@@ -77,48 +81,63 @@ def run_kspace_gnn(args):
 
     # writer = SummaryWriter('logs/fit/kSpaceGNN_' + str(time.time()))
     for epoch in range(args.epochs):
-        model.train()
 
+        # initialize centers with kmeans when slack is reached
+        if epoch == (args.slack - 1):
+            model.eval()
+            z = model.encode(original_data.x, original_data.edge_index).cpu().detach()
+            kmeans = KMeans(n_clusters=m)
+            pred = kmeans.fit_predict(z)
+            acc, nmi, f1, ari = calc_metrics(pred, y)
+            print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+            plot_centers(z, kmeans.cluster_centers_, y, epoch)
+            with torch.no_grad():
+                model.centers = torch.nn.Parameter(torch.tensor(kmeans.cluster_centers_, requires_grad=True).to(device))
+        # training
+        model.train()
         x = data.x
         train_pos_edge_index = data.train_pos_edge_index
         optimizer.zero_grad()
         z = model.encode(x, train_pos_edge_index)
-        rec_loss = model.recon_loss(z, train_pos_edge_index)
-
         if epoch >= args.slack - 1:
-            c_loss = cluster_kl_loss(z, model.centers)
-            # c_loss = tf.reduce_mean(cluster_q_loss(z, model.centers))
-            correction_factor = abs(rec_loss / c_loss)
-            c_loss = c_loss * correction_factor
-            loss = rec_loss + alphas[epoch] * c_loss
+            if epoch % 5:
+                model.centers.requires_grad = True
+            else:
+                model.centers.requires_grad = False
+            loss = model.complex_loss(z, alphas[epoch], train_pos_edge_index)
         else:
-            loss = rec_loss
-
-        if epoch >= args.slack - 1 and epoch % 5:
-            for param in model.parameters():
-                param.requires_grad = False
-            model.centers.requires_grad = True
-        else:
-            for param in model.parameters():
-                param.requires_grad = True
-            model.centers.requires_grad = False
+            loss = model.recon_loss(z, train_pos_edge_index)
 
         loss.backward()
         optimizer.step()
         auc, ap = test(data, model)
         print('Epoch: {}, Loss: {:.4f}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, loss, auc, ap))
 
-        # writer.add_scalar('auc_train', auc, epoch)
-        # writer.add_scalar('ap_train', ap, epoch)
+        if epoch >= args.slack - 1:
+            if epoch % 5:
+                with torch.no_grad():
+                    model.centers -= args.learning_rate * model.centers.grad.data
+            # print(torch.sum(model.centers, dim=1))
+            # print(model.centers.grad.data.sum())
+            # for param in model.parameters():
+            #     print(param.grad.data.sum())
+            # TODO find why grads of centers are so small. ~10^-19 while the rest are ~10^-1
+
+        # if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
+        #     model.eval()
+        #     z = model.encode(original_data.x, original_data.edge_index).cpu().detach()
+        #     kmeans = KMeans(n_clusters=m)
+        #     pred = kmeans.fit_predict(z)
+        #     acc, nmi, f1, ari = calc_metrics(pred, y)
+        #     print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+        #     plot_centers(z, kmeans.cluster_centers_, y, epoch)
+        # # writer.add_scalar('auc_train', auc, epoch)
+        # # writer.add_scalar('ap_train', ap, epoch)
 
     print("Optimization Finished!")
     x = original_data.x
     edge_index = original_data.edge_index
-
-    y = original_data.y.cpu().detach().numpy()
     z = model.encode(x, edge_index).cpu().detach()
-    m = len(np.unique(y))
-
     kmeans = KMeans(n_clusters=m)
     pred = kmeans.fit_predict(z)
     acc, nmi, f1, ari = calc_metrics(pred, y)
