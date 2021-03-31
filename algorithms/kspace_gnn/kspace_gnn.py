@@ -6,21 +6,9 @@ from torch_geometric.transforms import NormalizeFeatures
 from torch_geometric.utils import train_test_split_edges
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.cluster import KMeans
-from .utils import get_alpha, calc_metrics
+from .utils import get_alpha, calc_metrics, cluster_kl_loss
 from .models import GAE, GCNEncoder
 
-def train(data, model, optimizer):
-    model.train()
-
-    x = data.x
-    train_pos_edge_index = data.train_pos_edge_index
-    optimizer.zero_grad()
-    z = model.encode(x, train_pos_edge_index)
-    loss = model.recon_loss(z, train_pos_edge_index)
-    loss.backward()
-    optimizer.step()
-
-    return loss
 
 def test(data, model):
     model.eval()
@@ -75,7 +63,7 @@ def run_kspace_gnn(args):
 
     original_data = data.clone() # keep original data for the last evaluation step
     data = train_test_split_edges(data) # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
-    model = GAE(GCNEncoder(args.dims, args.dropout))
+    model = GAE(args.dims, GCNEncoder(args.dims, args.dropout))
 
     alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
 
@@ -87,14 +75,41 @@ def run_kspace_gnn(args):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
-    writer = SummaryWriter('logs/fit/kSpaceGNN_' + str(time.time()))
+    # writer = SummaryWriter('logs/fit/kSpaceGNN_' + str(time.time()))
     for epoch in range(args.epochs):
-        loss = train(data, model, optimizer)
+        model.train()
+
+        x = data.x
+        train_pos_edge_index = data.train_pos_edge_index
+        optimizer.zero_grad()
+        z = model.encode(x, train_pos_edge_index)
+        rec_loss = model.recon_loss(z, train_pos_edge_index)
+
+        if epoch >= args.slack - 1:
+            c_loss = cluster_kl_loss(z, model.centers)
+            # c_loss = tf.reduce_mean(cluster_q_loss(z, model.centers))
+            correction_factor = abs(rec_loss / c_loss)
+            c_loss = c_loss * correction_factor
+            loss = rec_loss + alphas[epoch] * c_loss
+        else:
+            loss = rec_loss
+
+        if epoch >= args.slack - 1 and epoch % 5:
+            for param in model.parameters():
+                param.requires_grad = False
+            model.centers.requires_grad = True
+        else:
+            for param in model.parameters():
+                param.requires_grad = True
+            model.centers.requires_grad = False
+
+        loss.backward()
+        optimizer.step()
         auc, ap = test(data, model)
         print('Epoch: {}, Loss: {:.4f}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, loss, auc, ap))
 
-        writer.add_scalar('auc_train', auc, epoch)
-        writer.add_scalar('ap_train', ap, epoch)
+        # writer.add_scalar('auc_train', auc, epoch)
+        # writer.add_scalar('ap_train', ap, epoch)
 
     print("Optimization Finished!")
     x = original_data.x

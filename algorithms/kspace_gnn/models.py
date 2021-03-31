@@ -4,6 +4,7 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_pre
 from torch_geometric.utils import negative_sampling, remove_self_loops, add_self_loops
 from torch_geometric.nn.inits import reset
 from torch_geometric.nn import GCNConv
+from torch.autograd import Variable
 from collections import OrderedDict
 
 
@@ -48,11 +49,15 @@ class InnerProductDecoder(torch.nn.Module):
 
 class GAE(torch.nn.Module):
 
-    def __init__(self, encoder, decoder=None):
+    def __init__(self, dims, encoder, decoder=None):
         super(GAE, self).__init__()
         self.encoder = encoder
         self.decoder = InnerProductDecoder() if decoder is None else decoder
         GAE.reset_parameters(self)
+
+        embedding_dim = dims[-1]
+        self.centers = torch.randn(7, embedding_dim).requires_grad_()
+        
 
     def reset_parameters(self):
         reset(self.encoder)
