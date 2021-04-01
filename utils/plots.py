@@ -7,18 +7,23 @@ import pandas as pd
 import os
 
 
-def tsne(embeds, gnd, args):
-    sns.set(rc={'figure.figsize': (11.7, 8.27)})
+def tsne(embeds, gnd, args, epoch=-1):
+    figure = plt.figure(figsize=(11.7, 8.27))
     palette = sns.color_palette("bright", len(np.unique(gnd)))
     tsne = TSNE(n_components=2, perplexity=30)
     X_embedded = tsne.fit_transform(embeds)
-    f, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
-    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], ax=ax1, hue=gnd, legend='full', palette=palette)
-    ax1.set_title('T-SNE {}'.format(args.input))
+    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=gnd, legend='full', palette=palette)
+    if epoch == -1:
+        plt.title('T-SNE')
+    else:
+        plt.title('T-SNE, epoch: {}'.format(epoch))
+    plt.tight_layout()
 
-    plt.savefig('figures/kspace/tsne/{}_{}epochs_{}dims_{}hidden.png'.format(args.input, args.epochs, args.dimension,
-                                                                               args.hidden), format='png')
-    plt.show()
+    dimension = '-'.join([str(i) for i in args.dims])
+    if epoch == -1:
+        plt.savefig('figures/kspace/tsne/{}_{}epochs_{}dims.png'.format(args.input, args.epochs, dimension), format='png')
+    else:
+        plt.savefig('figures/kspace/tsne/epochs/{}_{}epochs_{}dims_epoch_{}.png'.format(args.input, args.epochs, dimension, epoch), format='png')
 
 
 def plot_centers(embeds, centers, gnd, epoch):

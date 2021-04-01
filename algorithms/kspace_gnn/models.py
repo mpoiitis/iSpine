@@ -1,4 +1,5 @@
 import torch
+from torch.utils.data import TensorDataset, DataLoader
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_precision_score
 from torch_geometric.utils import negative_sampling, remove_self_loops, add_self_loops
@@ -10,6 +11,7 @@ from .utils import cluster_kl_loss
 
 EPS = 1e-15
 MAX_LOGSTD = 10
+
 
 class GCNEncoder(torch.nn.Module):
     def __init__(self, dims, dropout):
@@ -34,6 +36,7 @@ class GCNEncoder(torch.nn.Module):
 
         return x
 
+
 class InnerProductDecoder(torch.nn.Module):
 
     def forward(self, z, edge_index, sigmoid=True):
@@ -46,33 +49,28 @@ class InnerProductDecoder(torch.nn.Module):
         return torch.sigmoid(adj) if sigmoid else adj
 
 
-
 class GAE(torch.nn.Module):
 
-    def __init__(self, dims, encoder, decoder=None):
+    def __init__(self, dims, num_centers, encoder, decoder=None):
         super(GAE, self).__init__()
         self.encoder = encoder
         self.decoder = InnerProductDecoder() if decoder is None else decoder
 
         embedding_dim = dims[-1]
-        centers = torch.randn(7, embedding_dim, requires_grad=True)
-        self.centers = torch.nn.Parameter(centers)
+        self.cl_module = torch.nn.Linear(embedding_dim, num_centers)
         GAE.reset_parameters(self)
-
+        # self.correction_factor = 0
 
     def reset_parameters(self):
         reset(self.encoder)
         reset(self.decoder)
-        reset(self.centers)
-
+        reset(self.cl_module)
 
     def encode(self, *args, **kwargs):
         return self.encoder(*args, **kwargs)
 
-
     def decode(self, *args, **kwargs):
         return self.decoder(*args, **kwargs)
-
 
     def recon_loss(self, z, pos_edge_index, neg_edge_index=None):
         """Given latent variables, computes the binary cross entropy loss for positive edges and negative sampled edges.
@@ -97,13 +95,15 @@ class GAE(torch.nn.Module):
 
     def complex_loss(self, z, alpha, pos_edge_index, neg_edge_index=None):
         rec_loss = self.recon_loss(z, pos_edge_index, neg_edge_index=neg_edge_index)
-        c_loss = cluster_kl_loss(z, self.centers)
 
-        correction_factor = abs(rec_loss / c_loss)
-        c_loss = c_loss * correction_factor
+        q = self.cl_module(z)
+        q = F.softmax(q)
+        c_loss = cluster_kl_loss(q)
+        correction_factor = torch.floor(torch.log10(rec_loss) - torch.log10(c_loss))
+        c_loss = c_loss * (10 ** correction_factor)
         loss = rec_loss + alpha * c_loss
 
-        return loss
+        return loss, rec_loss, c_loss
 
     def test(self, z, pos_edge_index, neg_edge_index):
         """Given latent variables, positive edges and negative edges, computes area under the ROC curve (AUC)
@@ -126,7 +126,42 @@ class GAE(torch.nn.Module):
         y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
         return roc_auc_score(y, pred), average_precision_score(y, pred)
 
+    def pretrain_cluster_module(self, z, pred, epochs=50, lr=0.001):
+        """
+            Pretrain neural network for calculating centers by using kmeans clusters
+        """
+        self.train()
 
+        # convert labels to one hot
+        pred_one_hot = torch.zeros((pred.size, pred.max() + 1))
+        pred_one_hot[torch.arange(pred.size), pred] = 1
+
+        # create batches for data
+        tensor_x = torch.Tensor(z)  # transform to torch tensor
+        tensor_y = torch.Tensor(pred_one_hot)
+        dataset = TensorDataset(tensor_x, tensor_y)
+        dataloader = DataLoader(dataset, batch_size=100)
+        data_len = len(list(dataloader))
+
+        opt = torch.optim.Adam(self.cl_module.parameters(), lr=lr)
+
+        for i in range(epochs):
+            loss = 0
+            for x_batch, y_batch in dataloader:
+                opt.zero_grad()
+                q = self.cl_module(x_batch)
+                q = F.softmax(q)
+                l = F.binary_cross_entropy(q, y_batch)
+                l.backward()
+                opt.step()
+                loss += float(l)
+            loss = loss / data_len
+            print('Epoch: {}, Pretrain cluster_loss: {:.4f}'.format(i, loss))
+
+    def assign_clusters(self, z):
+        q = self.cl_module(z)
+        q = F.softmax(q)
+        return torch.argmax(q, dim=1)
 
 class VGAE(GAE):
     def __init__(self, encoder, decoder=None):

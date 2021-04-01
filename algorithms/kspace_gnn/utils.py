@@ -22,6 +22,8 @@ def get_alpha(s_max, epochs, slack, type='linear'):
         return np.array(zeros + [s_max * (np.exp(0.025*x) - 1) for x in range(0, epochs - slack + 1)])
     elif type == 'zeros':
         return [0] * epochs
+    elif type == 'ones':
+        return [1] * epochs
     else:
         return
 
@@ -38,40 +40,36 @@ def cluster_q_loss(z, centers):
     return torch.sum(q_log, dim=1) # + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
 
 
-def cluster_kl_loss(z, centers):
-    z = z.view(z.size()[0], 1, z.size()[1])
-    centers_r = centers.view(1, centers.size()[0], centers.size()[1])
-    partial = torch.squeeze(torch.norm(z - centers_r, p=2, dim=2)) ** 2
-    nominator = 1 - (1 / (1 + partial))
-    denominator = torch.sum(nominator, dim=1)
-    denominator = denominator.view(denominator.size()[0], 1)
-    q = nominator / denominator
-
-    p_nom = (q ** 2) / torch.sum(q ** 2, dim=0)
+def cluster_kl_loss(q):
+    # p_nom = (q ** 2) / torch.sum(q ** 2, dim=0)
+    # p_denom = torch.sum(p_nom, dim=1)
+    # p_denom = p_denom.view(p_denom.size()[0], 1)
+    # p = p_nom / p_denom
+    p_nom = q / torch.sqrt(torch.sum(q ** 2, dim=0))
     p_denom = torch.sum(p_nom, dim=1)
     p_denom = p_denom.view(p_denom.size()[0], 1)
     p = p_nom / p_denom
 
-    return F.kl_div(p,q)
+    # return torch.mean(torch.sum((-q.log() * p), dim=1))
+    return F.kl_div(p.log(), q)
 
 
-def calc_metrics(Y_pred, Y):
-    assert Y_pred.size == Y.size
-    # assert len(np.unique(Y_pred)) == len(np.unique(Y))
-    print('Predicted: {}, Actual: {}'.format(len(np.unique(Y_pred)), len(np.unique(Y))))
-    D = max(Y_pred.max(), Y.max())+1
+def calc_metrics(y_pred, y_true):
+    # assert y_pred.size == y_true.size
+    print('Predicted: {}, Actual: {}'.format(len(np.unique(y_pred)), len(np.unique(y_true))))
+    D = max(y_pred.max(), y_true.max()) + 1
     w = np.zeros((D,D), dtype=np.int64)
-    for i in range(Y_pred.size):
-        w[Y_pred[i], Y[i]] += 1
+    for i in range(y_pred.size):
+        w[y_pred[i], y_true[i]] += 1
     row_ind, col_ind = linear_sum_assignment(w.max() - w)
 
     # map predicted values to the correct ones
-    Y_pred = [col_ind[row_ind.tolist().index(l)] for l in Y_pred]
+    y_pred = [col_ind[row_ind.tolist().index(l)] for l in y_pred]
 
     # calculate metrics
-    nmi = metrics.normalized_mutual_info_score(Y, Y_pred)
-    ari = metrics.adjusted_rand_score(Y, Y_pred)
-    acc = metrics.accuracy_score(Y, Y_pred)
-    f1_macro = metrics.f1_score(Y, Y_pred, average='macro')
+    nmi = metrics.normalized_mutual_info_score(y_true, y_pred)
+    ari = metrics.adjusted_rand_score(y_true, y_pred)
+    acc = metrics.accuracy_score(y_true, y_pred)
+    f1_macro = metrics.f1_score(y_true, y_pred, average='macro')
 
     return acc, nmi, ari, f1_macro

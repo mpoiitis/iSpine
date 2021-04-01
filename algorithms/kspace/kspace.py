@@ -89,6 +89,8 @@ def train(args, feature, X, gnd, model):
     tb_loss = list()
     tb_c_loss = list()
     tb_rec_loss = list()
+    p = list()
+    q = list()
 
     for epoch in range(args.epochs):
         epoch_loss = list()
@@ -124,7 +126,28 @@ def train(args, feature, X, gnd, model):
                 rec_loss = mse_loss(y_batch_train, y_pred)
 
                 if epoch >= args.slack - 1:
-                    c_loss = cluster_kl_loss(z, model.centers)
+                    # c_loss = cluster_kl_loss(z, model.centers)
+                    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
+                    centers_r = tf.reshape(model.centers, [1, tf.shape(model.centers)[0], tf.shape(model.centers)[1]])
+                    partial = tf.math.pow(tf.squeeze(tf.norm(z - centers_r, ord='euclidean', axis=2)), 2)
+                    nominator = 1 - (1 / (1 + partial))
+                    denominator = tf.math.reduce_sum(nominator, axis=1)
+                    denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
+                    if len(q) <= step:
+                        q.append(nominator/denominator)
+                    else:
+                        q[step] = nominator / denominator
+                    if epoch == args.slack - 1 or epoch % 5:
+                        p_nom = tf.pow(q[step], 2) / tf.reduce_sum(tf.pow(q[step], 2), axis=0)
+                        p_denom = tf.reduce_sum(p_nom, axis=1)
+                        p_denom = tf.reshape(p_denom, [tf.shape(p_denom)[0], 1])
+                        if len(p) <= step:
+                            p.append(p_nom / p_denom)
+                        else:
+                            p[step] = p_nom / p_denom
+
+                    c_loss_func = tf.keras.losses.KLDivergence()
+                    c_loss = c_loss_func(p[step], q[step])
                     # c_loss = tf.reduce_mean(cluster_q_loss(z, model.centers))
                     correction_factor = abs(rec_loss / c_loss)
                     c_loss = c_loss * correction_factor
@@ -133,7 +156,7 @@ def train(args, feature, X, gnd, model):
                     loss = rec_loss
 
             if epoch >= args.slack - 1:
-                if epoch % 5:
+                if epoch % 2:
                     gradients = tape.gradient(loss, [model.centers])
                     # gradients = [0.00001*i for i in gradients]
                     model.optimizer.apply_gradients(zip(gradients, [model.centers]))
