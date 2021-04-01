@@ -63,7 +63,7 @@ def run_kspace_gnn(args):
     data.train_mask = data.val_mask = data.test_mask = None  # reset masks
 
     original_data = data.clone()  # keep original data for the last evaluation step
-    y = original_data.y.cpu().detach().numpy()
+    y = original_data.y.cpu()
     m = len(np.unique(y))  # number of clusters
 
     data = train_test_split_edges(data)  # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
@@ -72,10 +72,11 @@ def run_kspace_gnn(args):
     alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
 
     # Move to GPU if available
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model = model.to(device)
-    # data = data.to(device)
-    # original_data = original_data.to(device)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cpu')
+    model = model.to(device)
+    data = data.to(device)
+    original_data = original_data.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
@@ -85,11 +86,14 @@ def run_kspace_gnn(args):
         # initialize centers with kmeans when slack is reached
         if epoch == (args.slack - 1):
             model.eval()
-            z = model.encode(original_data.x, original_data.edge_index).cpu().detach()
+            z = model.encode(original_data.x, original_data.edge_index)
+
+            z_cpu = z.cpu().detach().clone().numpy()
             kmeans = KMeans(n_clusters=m)
-            pred = kmeans.fit_predict(z)
+            pred = kmeans.fit_predict(z_cpu)
+
             # pretrain center inference module using kmeans centers
-            model.pretrain_cluster_module(z, pred, 100)
+            model.pretrain_cluster_module(z, pred, device, 100)
 
             # KMeans results
             acc, nmi, f1, ari = calc_metrics(pred, y)
@@ -98,7 +102,7 @@ def run_kspace_gnn(args):
             pred = model.assign_clusters(z).cpu().detach().numpy()
             acc, nmi, f1, ari = calc_metrics(pred, y)
             print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-            tsne(z, y, args, epoch)
+            tsne(z_cpu, y, args, epoch)
 
 
         # training
@@ -110,6 +114,8 @@ def run_kspace_gnn(args):
 
         if epoch >= args.slack - 1:
             loss, rec_loss, c_loss = model.complex_loss(z, alphas[epoch], train_pos_edge_index)
+            for param in model.cl_module.parameters():
+                print(param.grad.data.sum())
         else:
             loss = model.recon_loss(z, train_pos_edge_index)
 
@@ -124,7 +130,7 @@ def run_kspace_gnn(args):
 
         if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
             model.eval()
-            z = model.encode(original_data.x, original_data.edge_index).cpu().detach()
+            z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
             tsne(z, y, args, epoch)
         # writer.add_scalar('auc_train', auc, epoch)
         # writer.add_scalar('ap_train', ap, epoch)

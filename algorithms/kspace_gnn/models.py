@@ -96,8 +96,7 @@ class GAE(torch.nn.Module):
     def complex_loss(self, z, alpha, pos_edge_index, neg_edge_index=None):
         rec_loss = self.recon_loss(z, pos_edge_index, neg_edge_index=neg_edge_index)
 
-        q = self.cl_module(z)
-        q = F.softmax(q)
+        q = F.softmax(self.cl_module(z))
         c_loss = cluster_kl_loss(q)
         correction_factor = torch.floor(torch.log10(rec_loss) - torch.log10(c_loss))
         c_loss = c_loss * (10 ** correction_factor)
@@ -126,20 +125,21 @@ class GAE(torch.nn.Module):
         y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
         return roc_auc_score(y, pred), average_precision_score(y, pred)
 
-    def pretrain_cluster_module(self, z, pred, epochs=50, lr=0.001):
+    def pretrain_cluster_module(self, z, pred, device, epochs=50, lr=0.001):
         """
             Pretrain neural network for calculating centers by using kmeans clusters
+            Args:
+                z (Tensor): The latent space representations.
+                pred (numpy array): The predictions of KMeans for zs
         """
         self.train()
 
-        # convert labels to one hot
         pred_one_hot = torch.zeros((pred.size, pred.max() + 1))
         pred_one_hot[torch.arange(pred.size), pred] = 1
+        pred_one_hot = pred_one_hot.to(device)
 
         # create batches for data
-        tensor_x = torch.Tensor(z)  # transform to torch tensor
-        tensor_y = torch.Tensor(pred_one_hot)
-        dataset = TensorDataset(tensor_x, tensor_y)
+        dataset = TensorDataset(z, pred_one_hot)
         dataloader = DataLoader(dataset, batch_size=100)
         data_len = len(list(dataloader))
 
@@ -148,9 +148,10 @@ class GAE(torch.nn.Module):
         for i in range(epochs):
             loss = 0
             for x_batch, y_batch in dataloader:
+                x_batch.detach_()
+                y_batch.detach_()
                 opt.zero_grad()
-                q = self.cl_module(x_batch)
-                q = F.softmax(q)
+                q = F.softmax(self.cl_module(x_batch))
                 l = F.binary_cross_entropy(q, y_batch)
                 l.backward()
                 opt.step()
@@ -159,8 +160,7 @@ class GAE(torch.nn.Module):
             print('Epoch: {}, Pretrain cluster_loss: {:.4f}'.format(i, loss))
 
     def assign_clusters(self, z):
-        q = self.cl_module(z)
-        q = F.softmax(q)
+        q = F.softmax(self.cl_module(z))
         return torch.argmax(q, dim=1)
 
 class VGAE(GAE):
