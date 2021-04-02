@@ -5,7 +5,6 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_pre
 from torch_geometric.utils import negative_sampling, remove_self_loops, add_self_loops
 from torch_geometric.nn.inits import reset
 from torch_geometric.nn import GCNConv
-from torch.autograd import Variable
 from collections import OrderedDict
 from .utils import cluster_kl_loss
 

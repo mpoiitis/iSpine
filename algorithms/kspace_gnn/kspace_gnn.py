@@ -72,8 +72,8 @@ def run_kspace_gnn(args):
     alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
 
     # Move to GPU if available
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # device = torch.device('cpu')
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cpu')
     model = model.to(device)
     data = data.to(device)
     original_data = original_data.to(device)
@@ -102,7 +102,7 @@ def run_kspace_gnn(args):
             pred = model.assign_clusters(z).cpu().detach().numpy()
             acc, nmi, f1, ari = calc_metrics(pred, y)
             print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-            tsne(z_cpu, y, args, epoch)
+            # tsne(z_cpu, y, args, epoch)
 
 
         # training
@@ -114,8 +114,6 @@ def run_kspace_gnn(args):
 
         if epoch >= args.slack - 1:
             loss, rec_loss, c_loss = model.complex_loss(z, alphas[epoch], train_pos_edge_index)
-            for param in model.cl_module.parameters():
-                print(param.grad.data.sum())
         else:
             loss = model.recon_loss(z, train_pos_edge_index)
 
@@ -128,10 +126,10 @@ def run_kspace_gnn(args):
         else:
             print('Epoch: {}, Loss: {:.4f}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, loss, auc, ap))
 
-        if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
-            model.eval()
-            z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
-            tsne(z, y, args, epoch)
+        # if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
+        #     model.eval()
+        #     z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
+        #     tsne(z, y, args, epoch)
         # writer.add_scalar('auc_train', auc, epoch)
         # writer.add_scalar('ap_train', ap, epoch)
 

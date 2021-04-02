@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from sklearn import metrics
 from scipy.optimize import linear_sum_assignment
 
+EPS = 1e-15
 
 def get_alpha(s_max, epochs, slack, type='linear'):
     """
@@ -51,7 +52,7 @@ def cluster_kl_loss(q):
     p = p_nom / p_denom
 
     # return torch.mean(torch.sum((-q.log() * p), dim=1))
-    return F.kl_div(p.log(), q)
+    return F.kl_div(torch.log2(p + EPS), q)
 
 
 def calc_metrics(y_pred, y_true):
