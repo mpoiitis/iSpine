@@ -72,8 +72,8 @@ def run_kspace_gnn(args):
     alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
 
     # Move to GPU if available
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cpu')
     model = model.to(device)
     data = data.to(device)
     original_data = original_data.to(device)
@@ -93,7 +93,7 @@ def run_kspace_gnn(args):
             pred = kmeans.fit_predict(z_cpu)
 
             # pretrain center inference module using kmeans centers
-            model.pretrain_cluster_module(z, pred, device, 100)
+            model.pretrain_cluster_module(z, pred, device, args.p_epochs)
 
             # KMeans results
             acc, nmi, f1, ari = calc_metrics(pred, y)
@@ -102,7 +102,7 @@ def run_kspace_gnn(args):
             pred = model.assign_clusters(z).cpu().detach().numpy()
             acc, nmi, f1, ari = calc_metrics(pred, y)
             print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-            # tsne(z_cpu, y, args, epoch)
+            tsne(z_cpu, y, args, epoch)
 
 
         # training
@@ -126,19 +126,21 @@ def run_kspace_gnn(args):
         else:
             print('Epoch: {}, Loss: {:.4f}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, loss, auc, ap))
 
-        # if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
-        #     model.eval()
-        #     z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
-        #     tsne(z, y, args, epoch)
+        if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
+            model.eval()
+            z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
+            tsne(z, y, args, epoch)
         # writer.add_scalar('auc_train', auc, epoch)
         # writer.add_scalar('ap_train', ap, epoch)
 
     print("Optimization Finished!")
     x = original_data.x
     edge_index = original_data.edge_index
-    z = model.encode(x, edge_index).cpu().detach()
+    z = model.encode(x, edge_index)
+
+    z_cpu = z.cpu().detach()
     kmeans = KMeans(n_clusters=m)
-    pred = kmeans.fit_predict(z)
+    pred = kmeans.fit_predict(z_cpu)
     acc, nmi, f1, ari = calc_metrics(pred, y)
     print('KMeans   Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
     pred = model.assign_clusters(z).cpu().detach().numpy()

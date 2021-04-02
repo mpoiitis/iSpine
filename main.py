@@ -118,10 +118,11 @@ def parse_args():
     kSpaceGnn_parser.add_argument("--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
     kSpaceGnn_parser.add_argument("--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
     kSpaceGnn_parser.add_argument("--epochs", default=500, type=int, help="Number of epochs. Default is 500.")
+    kSpaceGnn_parser.add_argument("--p-epochs", default=100, type=int, help="Number of pretraining epochs for the clustering module. Default is 100.")
     kSpaceGnn_parser.add_argument("--early-stopping", default=20, type=int, help="Tolerance for early stopping (# of epochs). E.g. 10. Default is 20.")
     kSpaceGnn_parser.add_argument("--a-max", default=1, type=float, help="The upper bound of alpha rate. Default is 1.")
-    kSpaceGnn_parser.add_argument("--slack", default=50, type=int, help="Number of epochs that clustering loss is not considered. Default is 50.")
-    kSpaceGnn_parser.add_argument("--alpha", default='linear', type=str, choices=['linear', 'exp', 'zeros', 'ones'], help="How to calculate alpha for every training epoch. [linear, exp, zeros, ones]. Default is linear")
+    kSpaceGnn_parser.add_argument("--slack", default=400, type=int, help="Number of epochs that clustering loss is not considered. Default is 50.")
+    kSpaceGnn_parser.add_argument("--alpha", default='const', type=str, choices=['linear', 'exp', 'const'], help="How to calculate alpha for every training epoch. [linear, exp, const]. Default is const")
     kSpaceGnn_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 
     args = parser.parse_args()

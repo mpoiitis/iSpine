@@ -21,10 +21,8 @@ def get_alpha(s_max, epochs, slack, type='linear'):
     elif type == 'exp':
         zeros = [0] * slack
         return np.array(zeros + [s_max * (np.exp(0.025*x) - 1) for x in range(0, epochs - slack + 1)])
-    elif type == 'zeros':
-        return [0] * epochs
-    elif type == 'ones':
-        return [1] * epochs
+    elif type == 'const':
+        return [s_max] * epochs
     else:
         return
 
