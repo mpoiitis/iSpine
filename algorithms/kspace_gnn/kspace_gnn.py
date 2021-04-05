@@ -1,13 +1,11 @@
-import time
 import numpy as np
 import torch
 from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import NormalizeFeatures
 from torch_geometric.utils import train_test_split_edges
-from torch.utils.tensorboard import SummaryWriter
 from sklearn.cluster import KMeans
-from utils.plots import plot_centers, tsne
-from .utils import get_alpha, calc_metrics
+from utils.plots import tsne
+from .utils import get_alpha, calc_metrics, save_metrics
 from .models import GAE, GCNEncoder
 
 
@@ -55,7 +53,7 @@ def run_kspace_gnn(args):
         print('Wikipedia dataset currently not supported!')
         return
 
-    args.dims = [dataset.num_features] + args.dims  # add the initial dimension of features for the 1st encoder layer
+    dims = [dataset.num_features] + args.dims  # add the initial dimension of features for the 1st encoder layer
 
     print_data_stats(dataset)
 
@@ -67,7 +65,7 @@ def run_kspace_gnn(args):
     m = len(np.unique(y))  # number of clusters
 
     data = train_test_split_edges(data)  # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
-    model = GAE(args.dims, m, GCNEncoder(args.dims, args.dropout))  # it uses the default decoder, which is the pair-wise similarity
+    model = GAE(dims, m, GCNEncoder(dims, args.dropout))  # it uses the default decoder, which is the pair-wise similarity
 
     alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
 
@@ -80,7 +78,6 @@ def run_kspace_gnn(args):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
-    # writer = SummaryWriter('logs/fit/kSpaceGNN_' + str(time.time()))
     for epoch in range(args.epochs):
 
         # initialize centers with kmeans when slack is reached
@@ -96,13 +93,13 @@ def run_kspace_gnn(args):
             model.pretrain_cluster_module(z, pred, device, args.p_epochs)
 
             # KMeans results
-            acc, nmi, f1, ari = calc_metrics(pred, y)
+            acc, nmi, ari, f1 = calc_metrics(pred, y)
             print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
             # Model results
             pred = model.assign_clusters(z).cpu().detach().numpy()
-            acc, nmi, f1, ari = calc_metrics(pred, y)
+            acc, nmi, ari, f1 = calc_metrics(pred, y)
             print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-            tsne(z_cpu, y, args, epoch)
+            # tsne(z_cpu, y, args, epoch)
 
 
         # training
@@ -126,12 +123,10 @@ def run_kspace_gnn(args):
         else:
             print('Epoch: {}, Loss: {:.4f}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, loss, auc, ap))
 
-        if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
-            model.eval()
-            z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
-            tsne(z, y, args, epoch)
-        # writer.add_scalar('auc_train', auc, epoch)
-        # writer.add_scalar('ap_train', ap, epoch)
+        # if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
+        #     model.eval()
+        #     z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
+        #     tsne(z, y, args, epoch)
 
     print("Optimization Finished!")
     x = original_data.x
@@ -141,8 +136,11 @@ def run_kspace_gnn(args):
     z_cpu = z.cpu().detach()
     kmeans = KMeans(n_clusters=m)
     pred = kmeans.fit_predict(z_cpu)
-    acc, nmi, f1, ari = calc_metrics(pred, y)
+    acc, nmi, ari, f1 = calc_metrics(pred, y)
     print('KMeans   Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
     pred = model.assign_clusters(z).cpu().detach().numpy()
-    acc, nmi, f1, ari = calc_metrics(pred, y)
+    acc, nmi, ari, f1 = calc_metrics(pred, y)
     print('Model    Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+
+    if args.save:
+        save_metrics(args, [acc, nmi, ari, f1])

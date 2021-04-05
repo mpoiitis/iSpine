@@ -1,11 +1,10 @@
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn.functional as F
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score
 from torch_geometric.utils import negative_sampling, remove_self_loops, add_self_loops
 from torch_geometric.nn.inits import reset
-from torch_geometric.nn import GCNConv
-from collections import OrderedDict
+from torch_geometric.nn import GCNConv, DeepGCNLayer, JumpingKnowledge
 from .utils import cluster_kl_loss
 
 EPS = 1e-15
@@ -16,23 +15,29 @@ class GCNEncoder(torch.nn.Module):
     def __init__(self, dims, dropout):
         super(GCNEncoder, self).__init__()
         self.dropout = dropout
-        encoder_layers = OrderedDict()
+        self.layers = torch.nn.ModuleList()
         for i in range(len(dims) - 1):
-            encoder_layers['gcn_{}'.format(i)] = GCNConv(dims[i], dims[i+1], cached=True) # cached only for transductive
-
-        self.encoder = torch.nn.Sequential(encoder_layers)
+            conv = GCNConv(dims[i], dims[i + 1], cached=True)  # cached only for transductive
+            self.layers.append(conv)
+            # if i == 0:
+            #     self.layers.append(conv)
+            # else:
+            #     layer = DeepGCNLayer(conv, block='res', ckpt_grad=i % 3)
+            #     self.layers.append(layer)
+        # self.jk = JumpingKnowledge(mode='cat')
 
     def forward(self, x, edge_index):
-        layers = list(self.encoder.children())
-        num_layers = len(layers)
-        for idx, layer in enumerate(layers):
+        num_layers = len(self.layers)
+        xs = list()
+        for idx, layer in enumerate(self.layers):
             if idx < num_layers - 1:
                 x = layer(x, edge_index)
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
             else:
                 x = layer(x, edge_index)
-
+            xs += [x]
+        # x = self.jk(xs)
         return x
 
 
@@ -58,7 +63,6 @@ class GAE(torch.nn.Module):
         embedding_dim = dims[-1]
         self.cl_module = torch.nn.Linear(embedding_dim, num_centers)
         GAE.reset_parameters(self)
-        # self.correction_factor = 0
 
     def reset_parameters(self):
         reset(self.encoder)
@@ -161,32 +165,3 @@ class GAE(torch.nn.Module):
     def assign_clusters(self, z):
         q = F.softmax(self.cl_module(z))
         return torch.argmax(q, dim=1)
-
-class VGAE(GAE):
-    def __init__(self, encoder, decoder=None):
-        super(VGAE, self).__init__(encoder, decoder)
-
-    def reparametrize(self, mu, logstd):
-        if self.training:
-            return mu + torch.randn_like(logstd) * torch.exp(logstd)
-        else:
-            return mu
-
-    def encode(self, *args, **kwargs):
-        self.__mu__, self.__logstd__ = self.encoder(*args, **kwargs)
-        self.__logstd__ = self.__logstd__.clamp(max=MAX_LOGSTD)
-        z = self.reparametrize(self.__mu__, self.__logstd__)
-        return z
-
-
-    def kl_loss(self, mu=None, logstd=None):
-        """Computes the KL loss, either for the passed arguments mu and logstd, or based on latent variables
-            from last encoding.
-
-        Args:
-            mu (Tensor, optional): The latent space mean. If set to None, uses the last computation.
-            logstd (Tensor, optional): The latent space logvar.  If set to None, uses the last computation.
-        """
-        mu = self.__mu__ if mu is None else mu
-        logstd = self.__logstd__ if logstd is None else logstd.clamp(max=MAX_LOGSTD)
-        return -0.5 * torch.mean(torch.sum(1 + 2 * logstd - mu**2 - logstd.exp()**2, dim=1))
