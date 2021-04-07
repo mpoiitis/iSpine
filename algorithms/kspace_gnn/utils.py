@@ -125,7 +125,7 @@ def plot_metrics(filename='input_cora-method_kspace_gnn-repeats_10-dims_200_100-
     plt.show()
 
 
-def plot_metrics_per_layers():
+def plot_metrics_for_layers():
 
     directory = 'output/kSpaceGnn/'
     acc_stds = list()
