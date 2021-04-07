@@ -24,7 +24,7 @@ class GCNEncoder(torch.nn.Module):
             # else:
             #     layer = DeepGCNLayer(conv, block='res', ckpt_grad=i % 3)
             #     self.layers.append(layer)
-        # self.jk = JumpingKnowledge(mode='cat')
+        self.jk = JumpingKnowledge(mode='cat')
 
     def forward(self, x, edge_index):
         num_layers = len(self.layers)
@@ -37,7 +37,7 @@ class GCNEncoder(torch.nn.Module):
             else:
                 x = layer(x, edge_index)
             xs += [x]
-        # x = self.jk(xs)
+        x = self.jk(xs)
         return x
 
 
@@ -59,9 +59,8 @@ class GAE(torch.nn.Module):
         super(GAE, self).__init__()
         self.encoder = encoder
         self.decoder = InnerProductDecoder() if decoder is None else decoder
-
         embedding_dim = dims[-1]
-        self.cl_module = torch.nn.Linear(embedding_dim, num_centers)
+        self.cl_module = torch.nn.Linear(sum(dims[1:]), num_centers)
         GAE.reset_parameters(self)
 
     def reset_parameters(self):
@@ -154,6 +153,7 @@ class GAE(torch.nn.Module):
                 x_batch.detach_()
                 y_batch.detach_()
                 opt.zero_grad()
+
                 q = F.softmax(self.cl_module(x_batch))
                 l = F.binary_cross_entropy(q, y_batch)
                 l.backward()

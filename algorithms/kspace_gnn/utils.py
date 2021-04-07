@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
+import matplotlib.ticker as ticker
 import torch
 import torch.nn.functional as F
 from sklearn import metrics
@@ -79,7 +79,6 @@ def calc_metrics(y_pred, y_true):
 
 
 def save_metrics(args, data, columns=['Acc', 'NMI', 'ARI', 'F1']):
-    print(data, columns)
     args = vars(args)
     filename = ''
     for idx, (key, value) in enumerate(args.items()):
@@ -100,7 +99,7 @@ def save_metrics(args, data, columns=['Acc', 'NMI', 'ARI', 'F1']):
 
 
 def plot_metrics(filename='input_cora-method_kspace_gnn-repeats_10-dims_200_100-dropout_0.2-learning_rate_0.001-epochs_500-p_epochs_100-a_max_1.0-slack_400-alpha_const-save_True'):
-    df = pd.read_csv('../../output/kSpaceGnn/{}.csv'.format(filename))
+    df = pd.read_csv('output/kSpaceGnn/{}.csv'.format(filename))
 
     acc_std = df['Acc'].std()
     nmi_std = df['NMI'].std()
@@ -120,7 +119,9 @@ def plot_metrics(filename='input_cora-method_kspace_gnn-repeats_10-dims_200_100-
     plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=4, fancybox=True, shadow=True)
     plt.xlabel('Iteration')
     plt.ylabel('Value')
-    plt.savefig('../../output/kSpaceGnn/figure_{}.png'.format(filename), format='png')
+
+    plt.gca().yaxis.set_ticks(np.arange(0, 1, 0.1))
+    plt.savefig('output/kSpaceGnn/figure_{}.png'.format(filename), format='png')
     plt.show()
 
 
@@ -175,6 +176,7 @@ def plot_metrics_per_layers():
     plt.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=4, fancybox=True, shadow=True)
     plt.xlabel('Layers')
     plt.ylabel('Value')
-    plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.gca().yaxis.set_ticks(np.arange(0, 1, 0.1))
+    plt.gca().xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     plt.savefig('output/kSpaceGnn/figure_total_layers.png', format='png')
     plt.show()

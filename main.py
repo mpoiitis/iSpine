@@ -154,6 +154,8 @@ if __name__ == "__main__":
     elif args.method == 'kspace_gnn':
         for i in range(args.repeats):
             run_kspace_gnn(args)
+        # from algorithms.kspace_gnn.utils import plot_metrics
+        # plot_metrics('input_cora-method_kspace_gnn-repeats_10-dims_200_100-dropout_0.2-learning_rate_0.001-epochs_500-p_epochs_100-a_max_1.0-slack_400-alpha_const-save_True')
     elif args.method == 'age':
         run_age(args)
     else:
