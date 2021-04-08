@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score, average_precision_score
 from torch_geometric.utils import negative_sampling, remove_self_loops, add_self_loops
 from torch_geometric.nn.inits import reset
-from torch_geometric.nn import GCNConv, DeepGCNLayer, JumpingKnowledge
+from torch_geometric.nn import GCNConv, DeepGCNLayer, JumpingKnowledge, SAGEConv
 from .utils import cluster_kl_loss
 
 EPS = 1e-15
@@ -17,14 +17,15 @@ class GCNEncoder(torch.nn.Module):
         self.dropout = dropout
         self.layers = torch.nn.ModuleList()
         for i in range(len(dims) - 1):
-            conv = GCNConv(dims[i], dims[i + 1], cached=True)  # cached only for transductive
+            conv = SAGEConv(dims[i], dims[i + 1], normalize=True)
+            # conv = GCNConv(dims[i], dims[i + 1], cached=True)  # cached only for transductive
             self.layers.append(conv)
-            # if i == 0:
-            #     self.layers.append(conv)
-            # else:
-            #     layer = DeepGCNLayer(conv, block='res', ckpt_grad=i % 3)
-            #     self.layers.append(layer)
-        self.jk = JumpingKnowledge(mode='cat')
+            if i == 0:
+                self.layers.append(conv)
+            else:
+                layer = DeepGCNLayer(conv, block='res', ckpt_grad=i % 3)
+                self.layers.append(layer)
+        # self.jk = JumpingKnowledge(mode='cat')
 
     def forward(self, x, edge_index):
         num_layers = len(self.layers)
@@ -37,7 +38,7 @@ class GCNEncoder(torch.nn.Module):
             else:
                 x = layer(x, edge_index)
             xs += [x]
-        x = self.jk(xs)
+        # x = self.jk(xs)
         return x
 
 
@@ -60,7 +61,8 @@ class GAE(torch.nn.Module):
         self.encoder = encoder
         self.decoder = InnerProductDecoder() if decoder is None else decoder
         embedding_dim = dims[-1]
-        self.cl_module = torch.nn.Linear(sum(dims[1:]), num_centers)
+        # self.cl_module = torch.nn.Linear(sum(dims[1:]), num_centers)
+        self.cl_module = torch.nn.Linear(embedding_dim, num_centers)
         GAE.reset_parameters(self)
 
     def reset_parameters(self):
