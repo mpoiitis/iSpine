@@ -4,7 +4,7 @@ from algorithms.dane.pretrainer import PreTrainer
 from .models import FullModel
 import os
 import tensorflow as tf
-from utils.utils import preprocess_features, load_data, save_results
+from utils.utils import preprocess_features, load_data, save_embeddings
 
 
 def run_dane(args):
@@ -131,5 +131,5 @@ def run_dane(args):
 
     # save embeddings
     embeds = [e.numpy() for e in embeds]
-    save_results(args, embeds)
+    save_embeddings(args, embeds)
 

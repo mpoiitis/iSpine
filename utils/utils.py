@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import scipy.sparse as sp
@@ -243,34 +244,6 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     return torch.sparse.FloatTensor(indices, values, shape)
 
 
-def save_results(args, output, result, node_dict=None):
-    """
-    Save the embeddings to file
-    :param args: CLI arguments
-    :param output: the output location to save results
-    :param result: the embeddings
-    :param node_dict: if given it maps the node indices to the actual node names
-    """
-    print('Saving embeddings to location', output)
-    print('Number of embeddings', len(result))
-    list_with_index = list()
-    for i, embedding in enumerate(result):
-        l = list()
-        if node_dict:
-            l.append(list(node_dict.keys())[list(node_dict.values()).index(i)])  # save actual node string name instead of index
-        else:
-            l.append(i)  # save index instead of actual node string name
-        l.extend(embedding)
-        list_with_index.append(l)
-
-    if args.method == 'dane':  # dane concatenates two sub-embeddings, so we need double the size of each one
-        columns = ["id"] + ["X_" + str(dim) for dim in range(2*args.dimension)]
-    else:
-        columns = ["id"] + ["X_" + str(dim) for dim in range(args.dimension)]
-    df = pd.DataFrame(list_with_index, columns=columns)
-    df.to_csv(output, index=None)
-
-
 def mask_test_edges(adj):
     # Function to build test set with 10% positive links
     # NOTE: Splits are randomized and results might slightly deviate from reported numbers in the paper.
@@ -473,3 +446,92 @@ def laplacian(adj):
     return torch.FloatTensor(lap.toarray())
 
 
+def save_embeddings(args, output, result, node_dict=None):
+    """
+    Save the embeddings to file
+    :param args: CLI arguments
+    :param output: the output location to save results
+    :param result: the embeddings
+    :param node_dict: if given it maps the node indices to the actual node names
+    """
+    print('Saving embeddings to location', output)
+    print('Number of embeddings', len(result))
+    list_with_index = list()
+    for i, embedding in enumerate(result):
+        l = list()
+        if node_dict:
+            l.append(list(node_dict.keys())[list(node_dict.values()).index(i)])  # save actual node string name instead of index
+        else:
+            l.append(i)  # save index instead of actual node string name
+        l.extend(embedding)
+        list_with_index.append(l)
+
+
+    if args.method == 'dane':  # dane concatenates two sub-embeddings, so we need double the size of each one
+        columns = ["id"] + ["X_" + str(dim) for dim in range(2*args.dimension)]
+    else:
+        columns = ["id"] + ["X_" + str(dim) for dim in range(args.dimension)]
+    df = pd.DataFrame(list_with_index, columns=columns)
+    df.to_csv(output, index=None)
+
+
+def save_cluster_metrics(args, data, columns=['Epoch', 'Acc', 'NMI', 'ARI', 'F1'], epoch=None):
+    if epoch:
+        data = [epoch] + data
+    else:
+        data = ['Overall'] + data
+
+    args = vars(args)
+    # create proper filename
+    filename = ''
+    for idx, (key, value) in enumerate(args.items()):
+        if idx < len(args.keys()) - 1:
+            if key == 'dims':
+                filename += '{}_{}-'.format(key, '_'.join([str(v) for v in value]))
+            else:
+                filename += '{}_{}-'.format(key, value)
+        else:
+            filename += '{}_{}'.format(key, value)
+
+    # create directory if it doesn't exist
+    directory = 'output/{}/'.format(args.method)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # write headers only once
+    df = pd.DataFrame([data], columns=columns)
+    if os.path.isfile('{}/{}.csv'.format(directory, filename)):
+        df.to_csv('{}/{}.csv'.format(directory, filename), mode='a', index=None, header=False)
+    else:
+        df.to_csv('{}/{}.csv'.format(directory, filename), mode='w', index=None, header=True)
+
+
+def get_alpha(s_max, epochs, type='linear'):
+    """
+    Calculate evenly spaced alphas for each epoch based on function type
+    :param s_max: the maximum value of a. Last epoch will have this value
+    :param epochs: number of epochs
+    :param type: function type
+    :return: a numpy array of shape (epochs, 1)
+    """
+    if type == 'linear':
+        return np.linspace(0, s_max, epochs).tolist()
+    elif type == 'exp':
+        # return [s_max * (np.exp(0.025*x) - 1) for x in range(epochs)]
+        return [(np.exp((np.log(1+s_max)/epochs) * x) - 1) for x in range(epochs)]
+    elif type == 'const':
+        return [s_max] * epochs
+    else:
+        return
+
+
+def get_file_count(directory, str_to_search):
+    """
+    Given a specific string (file name), it returns the index of the newest instance
+    """
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    path, dirs, files = next(os.walk("{}".format(directory)))
+    files = [file for file in files if str_to_search in file]
+    file_count = len(files)
+    return file_count

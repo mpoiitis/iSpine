@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from utils.utils import preprocess_adj, preprocess_features, load_data_trunc, sparse_mx_to_torch_sparse_tensor, save_results
+from utils.utils import preprocess_adj, preprocess_features, load_data_trunc, sparse_mx_to_torch_sparse_tensor, save_embeddings
 from .models import DGI, LogReg
 import torch
 import torch.nn as nn
@@ -101,7 +101,7 @@ def run_dgi(args):
     embeds, _ = model.embed(features, A, args.sparse, None)
     # save embeddings
     embeds = [e.cpu().numpy() for e in embeds]
-    save_results(args, embeds[0])
+    save_embeddings(args, embeds[0])
 
     # EVALUATION PHASE. DOWNSTREAM TASK IS NODE CLASSIFICATION USING LOGISTIC REGRESSION
     print('Evaluating')

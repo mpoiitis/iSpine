@@ -1,232 +1,155 @@
-import csv
-import os
 import numpy as np
 import scipy.sparse as sp
-import tensorflow as tf
+from torch_geometric.datasets import Planetoid
+from torch_geometric.transforms import NormalizeFeatures
+from torch_geometric.utils import to_dense_adj, train_test_split_edges
+from torch.utils.data import DataLoader
+import torch
+import pickle
 from sklearn.cluster import KMeans
-from .models import AE, VAE
-from tensorflow.keras.optimizers import Adam
-from utils.utils import load_data_trunc, save_results, largest_eigval_smoothing_filter, preprocess_adj
-from .utils import get_alpha, calc_metrics, cluster_q_loss, cluster_kl_loss
+from .models import kSPACE
+from utils.utils import largest_eigval_smoothing_filter, preprocess_adj, get_file_count
 from utils.plots import plot_centers
+from .utils import calc_metrics, CustomDataset, get_hyperparams, cluster_kl_loss
 
 
-seed = 123
-np.random.seed(seed)
-tf.random.set_seed(seed)
+def print_data_stats(dataset):
+    print()
+    print(f'Dataset: {dataset}:')
+    print('======================')
+    print(f'Number of graphs: {len(dataset)}')
+    print(f'Number of features: {dataset.num_features}')
+    print(f'Number of classes: {dataset.num_classes}')
+    data = dataset[0]  # Get the first graph object.
+    print(data)
+    print(f'Number of nodes: {data.num_nodes}')
+    print(f'Number of edges: {data.num_edges}')
+    print(f'Average node degree: {data.num_edges / data.num_nodes:.2f}')
+    print(f'Number of training nodes: {data.train_mask.sum()}')
+    print(f'Training node label rate: {int(data.train_mask.sum()) / data.num_nodes:.2f}')
+    print(f'Contains isolated nodes: {data.contains_isolated_nodes()}')
+    print(f'Contains self-loops: {data.contains_self_loops()}')
+    print(f'Is undirected: {data.is_undirected()}')
 
 
 def run_kspace(args):
-    adj, feature, gnd, idx_train, idx_val, idx_test = load_data_trunc(args.input)
+    if args.input == 'cora':
+        dataset = Planetoid(root='data/Planetoid', name='Cora', transform=NormalizeFeatures())
+    elif args.input == 'citeseer':
+        dataset = Planetoid(root='data/Planetoid', name='CiteSeer', transform=NormalizeFeatures())
+    elif args.input == 'pubmed':
+        dataset = Planetoid(root='data/Planetoid', name='PubMed', transform=NormalizeFeatures())
+    else:
+        print('Wikipedia dataset currently not supported!')
+        return
 
-    # convert one hot labels to integer ones
-    if args.input != "wiki":
-        gnd = np.argmax(gnd, axis=1)
-        feature = feature.todense()
-    feature = feature.astype(np.float32)
+    dims = [dataset.num_features] + args.dims  # add the initial dimension of features for the 1st encoder layer
 
-    adj = sp.coo_matrix(adj)
+    print_data_stats(dataset)
+
+    data = dataset[0]  # only one graph exists in these datasets
+    data.train_mask = data.val_mask = data.test_mask = None  # reset masks
+
+    original_data = data.clone()  # keep original data for the last evaluation step
+    y = original_data.y.cpu()
+    m = len(np.unique(y))  # number of clusters
+
+    adj = to_dense_adj(data.edge_index)
+    adj = adj.reshape(adj.shape[1], adj.shape[2])
+    adj = sp.coo_matrix(adj.cpu().numpy())
     adj_normalized = preprocess_adj(adj)
 
     h = largest_eigval_smoothing_filter(adj_normalized)
     h_k = h ** args.power
-    X = h_k.dot(feature)
+    X = h_k.dot(data.x)
 
-    for _ in range(args.repeats):
-        kspace(args, feature, X, gnd)
+    data = train_test_split_edges(data)  # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
 
-
-def kspace(args, feature, X, gnd):
-    save_location = 'output/{}_{}_power{}_epochs{}_dims{}-batch{}-lr{}-drop{}'.format(args.input, args.method, args.power,
-                                                                                         args.epochs, ",".join(
-            [str(x) for x in args.dims]), args.batch_size, args.learning_rate, args.dropout)
-
-    m = len(np.unique(gnd))
     # CREATE MODEL
-    model = AE(dims=args.dims, output_dim=X.shape[1], dropout=args.dropout, num_centers=m)
-    model.compile(optimizer=Adam(lr=args.learning_rate))
+    model = kSPACE(dims, m, args.dropout, args.temperature)
+    # Move to GPU if available
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    data = data.to(device)
+    X = torch.FloatTensor(X).to(device)
 
-    # TRAINING OR LOAD MODEL IF IT EXISTS
-    if not os.path.exists(save_location):
-        model, acc, nmi, f1, ari = train(args, feature, X, gnd, model)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    for _ in range(args.repeats):
+        acc_list = []
+        nmi_list = []
+        ari_list = []
+        f1_list = []
+        r_loss_list = []
+        c_loss_list = []
+        best_acc = 0
+        best_nmi = 0
+        best_ari = 0
+        best_f1 = 0
+        best_epoch = -1
+        for epoch in range(args.epochs):
+            train_pos_edge_index = data.train_pos_edge_index
 
+            optimizer.zero_grad()
+            z = model.encode(X)
+
+            loss, r_loss, c_loss = model.loss(z, args.alpha, args.beta, train_pos_edge_index)
+            loss.backward()
+            optimizer.step()
+
+            with torch.no_grad():
+                z = model.encode(X)
+                pred = model.assign_clusters(z).cpu().detach().numpy()
+                # z_cpu = z.cpu().detach()
+                # kmeans = KMeans(n_clusters=m)
+                # pred = kmeans.fit_predict(z_cpu)
+                acc, nmi, ari, f1 = calc_metrics(pred, y)
+
+            acc_list.append(acc)
+            nmi_list.append(nmi)
+            ari_list.append(ari)
+            f1_list.append(f1)
+            r_loss_list.append(r_loss)
+            c_loss_list.append(c_loss)
+            print('Epoch: {}, Loss: {:.4f}, Rec: {:.4f}, Clust: {:.4f}, Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(epoch, loss, r_loss, c_loss, acc * 100, nmi * 100, ari * 100, f1 * 100))
+
+            if acc > best_acc:
+                best_epoch = epoch
+                best_acc = acc
+                best_nmi = nmi
+                best_ari = ari
+                best_f1 = f1
+            # if args.save:
+            #     if (epoch != 0 and epoch % 500 == 0) or epoch == (args.epochs - 1):
+            #         model.eval()
+            #         z = model.encode(X)
+            #
+            #         centers = model.mu.cpu().detach()
+            #         plot_centers(z, centers, y, args, epoch)
+            #         model.train()
+
+        print("Optimization Finished!")
+        model.eval()
+        z = model.encode(X)
+
+        z_cpu = z.cpu().detach()
+        kmeans = KMeans(n_clusters=m)
+        pred = kmeans.fit_predict(z_cpu)
+        acc, nmi, ari, f1 = calc_metrics(pred, y)
+        print('KMeans   Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+        pred = model.assign_clusters(z).cpu().detach().numpy()
+        acc, nmi, ari, f1 = calc_metrics(pred, y)
+        print('Model    Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
+        print('Best    Epoch= {}    Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(best_epoch, best_acc * 100, best_nmi * 100, best_ari * 100, best_f1 * 100))
         if args.save:
-            os.makedirs(save_location)
-            model.save_weights(save_location + '/checkpoint')
-            write_results(args, acc, nmi, f1, ari)
-    else:
-        print('Model already exists. Loading it...')
-        model.load_weights(save_location + '/checkpoint')
+            dims = '_'.join([str(v) for v in args.dims])
+            directory = 'pickles/{}/{}_a_{}_b_{}_temperature_{}_epochs_{}_lr_{}_dropout_{}_dims_{}_power'.format(args.method, args.alpha, args.beta, args.temperature, args.epochs, args.learning_rate, args.dropout, dims, args.power)
+            file_count = get_file_count(directory, 'reclosses')
+            torch.save(model.state_dict(), '{}/model'.format(directory))
+            pickle.dump(X, open('{}/X.pickle'.format(directory, file_count), 'wb'))
+            pickle.dump(acc_list, open('{}/accs_{}.pickle'.format(directory, file_count), 'wb'))
+            pickle.dump(nmi_list, open('{}/nmis_{}.pickle'.format(directory, file_count), 'wb'))
+            pickle.dump(ari_list, open('{}/aris_{}.pickle'.format(directory, file_count), 'wb'))
+            pickle.dump(f1_list, open('{}/f1s_{}.pickle'.format(directory, file_count), 'wb'))
+            pickle.dump(r_loss_list, open('{}/reclosses_{}.pickle'.format(directory, file_count), 'wb'))
+            pickle.dump(c_loss_list, open('{}/clustlosses_{}.pickle'.format(directory, file_count), 'wb'))
 
-    # SAVE EMBEDDINGS
-    if args.save:
-        embeds = model.embed(feature)
-
-        embeds_to_save = [e.numpy() for e in embeds]
-        save_results(args, save_location, embeds_to_save)
-
-    # tsne(embeds, gnd, args)
-
-
-def train(args, feature, X, gnd, model):
-    """
-    Model training
-    :param args: cli arguments
-    :param feature: original feature matrix
-    :param X: the smoothed matrix
-    :param gnd: ground truth labels
-    :param model: the nn to be trained
-    """
-    alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
-
-    m = len(np.unique(gnd))  # number of clusters according to ground truth
-
-    train_dataset = tf.data.Dataset.from_tensor_slices((feature, X))
-    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(args.batch_size)
-
-    mse_loss = tf.keras.losses.MeanSquaredError()
-
-    tb_loss = list()
-    tb_c_loss = list()
-    tb_rec_loss = list()
-    p = list()
-    q = list()
-
-    for epoch in range(args.epochs):
-        epoch_loss = list()
-        rec_epoch_loss = list()
-        clust_epoch_loss = list()
-
-        if epoch == (args.slack - 1):
-            z = model.encoder(feature)
-            kmeans = KMeans(n_clusters=m)
-            predicted = kmeans.fit_predict(z)
-
-            acc, nmi, ari, f1 = calc_metrics(predicted, gnd)
-            print('Acc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100,
-                                                                                f1 * 100))
-            
-            model.centers.assign(kmeans.cluster_centers_)
-            plot_centers(z, kmeans.cluster_centers_, gnd, epoch)
-
-
-        if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
-            z = model.embed(feature)
-            centers = model.centers.numpy()
-            plot_centers(z, centers, gnd, epoch)
-            m_predicted = model.predict(feature).numpy()
-            acc, nmi, ari, f1 = calc_metrics(m_predicted, gnd)
-            print('\t\t\t\tAcc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100,
-                                                                        f1 * 100))
-
-        for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
-            with tf.GradientTape() as tape:
-                z = model.encoder(x_batch_train)
-                y_pred = model.decoder(z)
-                rec_loss = mse_loss(y_batch_train, y_pred)
-
-                if epoch >= args.slack - 1:
-                    # c_loss = cluster_kl_loss(z, model.centers)
-                    z = tf.reshape(z, [tf.shape(z)[0], 1, tf.shape(z)[1]])
-                    centers_r = tf.reshape(model.centers, [1, tf.shape(model.centers)[0], tf.shape(model.centers)[1]])
-                    partial = tf.math.pow(tf.squeeze(tf.norm(z - centers_r, ord='euclidean', axis=2)), 2)
-                    nominator = 1 - (1 / (1 + partial))
-                    denominator = tf.math.reduce_sum(nominator, axis=1)
-                    denominator = tf.reshape(denominator, [tf.shape(denominator)[0], 1])
-                    if len(q) <= step:
-                        q.append(nominator/denominator)
-                    else:
-                        q[step] = nominator / denominator
-                    if epoch == args.slack - 1 or epoch % 5:
-                        p_nom = tf.pow(q[step], 2) / tf.reduce_sum(tf.pow(q[step], 2), axis=0)
-                        p_denom = tf.reduce_sum(p_nom, axis=1)
-                        p_denom = tf.reshape(p_denom, [tf.shape(p_denom)[0], 1])
-                        if len(p) <= step:
-                            p.append(p_nom / p_denom)
-                        else:
-                            p[step] = p_nom / p_denom
-
-                    c_loss_func = tf.keras.losses.KLDivergence()
-                    c_loss = c_loss_func(p[step], q[step])
-                    # c_loss = tf.reduce_mean(cluster_q_loss(z, model.centers))
-                    correction_factor = abs(rec_loss / c_loss)
-                    c_loss = c_loss * correction_factor
-                    loss = rec_loss + alphas[epoch] * c_loss
-                else:
-                    loss = rec_loss
-
-            if epoch >= args.slack - 1:
-                if epoch % 2:
-                    gradients = tape.gradient(loss, [model.centers])
-                    # gradients = [0.00001*i for i in gradients]
-                    model.optimizer.apply_gradients(zip(gradients, [model.centers]))
-                else:
-                    gradients = tape.gradient(loss, model.encoder.trainable_weights + model.decoder.trainable_weights)
-                    model.optimizer.apply_gradients(zip(gradients, model.encoder.trainable_weights + model.decoder.trainable_weights))
-
-                epoch_loss.append(loss)
-                rec_epoch_loss.append(rec_loss)
-                clust_epoch_loss.append(c_loss)
-
-            else:
-                gradients = tape.gradient(loss, model.encoder.trainable_weights + model.decoder.trainable_weights)
-                model.optimizer.apply_gradients(zip(gradients, model.encoder.trainable_weights + model.decoder.trainable_weights))
-
-                epoch_loss.append(loss)
-                rec_epoch_loss.append(rec_loss)
-
-        if epoch >= args.slack - 1:
-            e_loss = np.mean(epoch_loss)
-            r_e_loss = np.mean(rec_epoch_loss)
-            c_e_loss = np.mean(clust_epoch_loss)
-            tb_loss.append(e_loss)
-            tb_c_loss.append(c_e_loss)
-            tb_rec_loss.append(r_e_loss)
-            print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f} Clustering: {:.4f}'.format(epoch, 100*e_loss, 100*r_e_loss, 100*c_e_loss))
-        else:
-            e_loss = np.mean(epoch_loss)
-            r_e_loss = np.mean(rec_epoch_loss)
-            tb_loss.append(e_loss)
-            tb_rec_loss.append(r_e_loss)
-            tb_c_loss.append(np.nan)
-            print('Epoch: {}    Loss: {:.4f} Reconstruction: {:.4f}'.format(epoch, 100*e_loss, 100*r_e_loss))
-
-    z = model.encoder(feature)
-    kmeans = KMeans(n_clusters=m)
-    predicted = kmeans.fit_predict(z)
-    acc, nmi, f1, ari = calc_metrics(predicted, gnd)
-    print("Optimization Finished!")
-    print('From kMeans: Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-
-    m_predicted = model.predict(feature).numpy()
-    acc, nmi, ari, f1 = calc_metrics(m_predicted, gnd)
-    print('From model:  Acc={:.4f}% Nmi={:.4f}% Ari={:.4f}% Macro-f1={:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-
-    import matplotlib.pyplot as plt
-    figure = plt.figure(figsize=(11.7, 8.27))
-    plt.plot(tb_loss, color='black', label='total')
-    plt.plot(tb_rec_loss, color='red', label='reconstruction')
-    plt.plot(tb_c_loss, color='blue', label='clustering')
-    plt.title('Losses for each epoch')
-    plt.xlabel('Epoch')
-    plt.ylabel('Value')
-    plt.legend()
-    plt.savefig('figures/kspace/tsne/epochs/losses.png', format='png')
-
-    return model, acc, nmi, f1, ari
-
-
-def write_results(args, ac, nm, f1, ari):
-    file_exists = os.path.isfile('output/kspace/results.csv')
-    with open('output/kspace/results.csv', 'a') as f:
-        columns = ['Dataset', 'Dimensions', 'Epochs', 'Batch Size', 'Learning Rate', 'Dropout',
-                   'A Max', 'A Type', 'Power', 'Accuracy', 'NMI', 'F1', 'ARI']
-        writer = csv.DictWriter(f, delimiter=',', lineterminator='\n', fieldnames=columns)
-
-        if not file_exists:
-            writer.writeheader()  # file doesn't exist yet, write a header
-        writer.writerow(
-            {'Dataset': args.input, 'Dimensions': ",".join([str(x) for x in args.dims]),
-             'Epochs': args.epochs, 'Batch Size': args.batch_size, 'Learning Rate': args.learning_rate,
-             'Dropout': args.dropout, 'A Max': args.a_max, 'A Type': args.alpha, 'Power': args.power,
-             'Accuracy': ac, 'NMI': nm, 'F1': f1, 'ARI': ari})

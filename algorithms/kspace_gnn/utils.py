@@ -10,37 +10,24 @@ import os
 
 EPS = 1e-15
 
-def get_alpha(s_max, epochs, slack, type='linear'):
+
+def get_alpha(s_max, epochs, type='linear'):
     """
     Calculate evenly spaced alphas for each epoch based on function type
     :param s_max: the maximum value of a. Last epoch will have this value
     :param epochs: number of epochs
-    :param slack: number of zeros for the first epochs
     :param type: function type
     :return: a numpy array of shape (epochs, 1)
     """
     if type == 'linear':
-        zeros = [0] * slack
-        return np.array(zeros + np.linspace(0, s_max, epochs - slack).tolist())
+        return np.linspace(0, s_max, epochs).tolist()
     elif type == 'exp':
-        zeros = [0] * slack
-        return np.array(zeros + [s_max * (np.exp(0.025*x) - 1) for x in range(0, epochs - slack + 1)])
+        # return [s_max * (np.exp(0.025*x) - 1) for x in range(epochs)]
+        return [(np.exp((np.log(1+s_max)/epochs) * x) - 1) for x in range(epochs)]
     elif type == 'const':
         return [s_max] * epochs
     else:
         return
-
-
-def cluster_q_loss(z, centers):
-    z = z.view(z.size()[0], 1, z.size()[1])
-    centers_r = centers.view(1, centers.size()[0], centers.size()[1])
-    partial = torch.squeeze(torch.norm(z - centers_r, p=2, dim=2)) ** 2
-    nominator = 1 - (1 / (1 + partial))
-    denominator = torch.sum(nominator, dim=1)
-    denominator = denominator.view(denominator.size()[0], 1)
-    q = nominator / denominator
-    q_log = torch.log2(q + 0.00001)  # e for 0 logs
-    return torch.sum(q_log, dim=1) # + tf.reduce_sum(tf.norm(centers, ord='euclidean', axis=1))
 
 
 def cluster_kl_loss(q):
@@ -59,7 +46,7 @@ def cluster_kl_loss(q):
 
 def calc_metrics(y_pred, y_true):
     # assert y_pred.size == y_true.size
-    print('Predicted: {}, Actual: {}'.format(len(np.unique(y_pred)), len(np.unique(y_true))))
+    # print('Predicted: {}, Actual: {}'.format(len(np.unique(y_pred)), len(np.unique(y_true))))
     D = max(y_pred.max(), y_true.max()) + 1
     w = np.zeros((D,D), dtype=np.int64)
     for i in range(y_pred.size):
@@ -76,26 +63,6 @@ def calc_metrics(y_pred, y_true):
     f1_macro = metrics.f1_score(y_true, y_pred, average='macro')
 
     return acc, nmi, ari, f1_macro
-
-
-def save_metrics(args, data, columns=['Acc', 'NMI', 'ARI', 'F1']):
-    args = vars(args)
-    filename = ''
-    for idx, (key, value) in enumerate(args.items()):
-        if idx < len(args.keys()) - 1:
-            if key == 'dims':
-                filename += '{}_{}-'.format(key, '_'.join([str(v) for v in value]))
-            else:
-                filename += '{}_{}-'.format(key, value)
-        else:
-            filename += '{}_{}'.format(key, value)
-
-    # write headers only once
-    df = pd.DataFrame([data], columns=columns)
-    if os.path.isfile('output/kSpaceGnn/{}.csv'.format(filename),):
-        df.to_csv('output/kSpaceGnn/{}.csv'.format(filename), mode='a', index=None, header=False)
-    else:
-        df.to_csv('output/kSpaceGnn/{}.csv'.format(filename), mode='w', index=None, header=True)
 
 
 def plot_metrics(filename='input_cora-method_kspace_gnn-repeats_10-dims_200_100-dropout_0.2-learning_rate_0.001-epochs_500-p_epochs_100-a_max_1.0-slack_400-alpha_const-save_True'):

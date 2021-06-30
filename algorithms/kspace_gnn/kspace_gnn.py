@@ -1,12 +1,15 @@
 import numpy as np
 import torch
+import pickle
+import os
 from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import NormalizeFeatures
 from torch_geometric.utils import train_test_split_edges
 from sklearn.cluster import KMeans
-from utils.plots import tsne
-from .utils import get_alpha, calc_metrics, save_metrics
-from .models import GAE, GCNEncoder
+from .utils import get_alpha, calc_metrics
+from .models import ClusterGAE
+from utils.plots import plot_centers
+from utils.utils import get_file_count
 
 
 def test(data, model):
@@ -22,6 +25,7 @@ def test(data, model):
         acc, f1 = model.test(z, test_pos_edge_index, test_neg_edge_index)
 
         return acc, f1
+
 
 def print_data_stats(dataset):
     print()
@@ -40,6 +44,7 @@ def print_data_stats(dataset):
     print(f'Contains isolated nodes: {data.contains_isolated_nodes()}')
     print(f'Contains self-loops: {data.contains_self_loops()}')
     print(f'Is undirected: {data.is_undirected()}')
+
 
 def run_kspace_gnn(args):
 
@@ -65,68 +70,52 @@ def run_kspace_gnn(args):
     m = len(np.unique(y))  # number of clusters
 
     data = train_test_split_edges(data)  # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
-    model = GAE(dims, m, GCNEncoder(dims, args.dropout))  # it uses the default decoder, which is the pair-wise similarity
 
-    alphas = get_alpha(args.a_max, args.epochs, args.slack, args.alpha)
+    model = ClusterGAE(dims, m, args.dropout, args.temperature)
+    alphas = get_alpha(args.a_max, args.epochs, args.alpha)
 
     # Move to GPU if available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # device = torch.device('cpu')
     model = model.to(device)
     data = data.to(device)
     original_data = original_data.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
+    acc_list = []
+    nmi_list = []
+    ari_list = []
+    f1_list = []
+    rec_loss_list = []
+    c_loss_list = []
     for epoch in range(args.epochs):
 
-        # initialize centers with kmeans when slack is reached
-        if epoch == (args.slack - 1):
-            model.eval()
-            z = model.encode(original_data.x, original_data.edge_index)
-
-            z_cpu = z.cpu().detach().clone().numpy()
-            kmeans = KMeans(n_clusters=m)
-            pred = kmeans.fit_predict(z_cpu)
-
-            # pretrain center inference module using kmeans centers
-            model.pretrain_cluster_module(z, pred, device, args.p_epochs)
-
-            # KMeans results
-            acc, nmi, ari, f1 = calc_metrics(pred, y)
-            print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-            # Model results
-            pred = model.assign_clusters(z).cpu().detach().numpy()
-            acc, nmi, ari, f1 = calc_metrics(pred, y)
-            print('Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
-            # tsne(z_cpu, y, args, epoch)
-
-
-        # training
-        model.train()
         x = data.x
         train_pos_edge_index = data.train_pos_edge_index
         optimizer.zero_grad()
         z = model.encode(x, train_pos_edge_index)
 
-        if epoch >= args.slack - 1:
-            loss, rec_loss, c_loss = model.complex_loss(z, alphas[epoch], train_pos_edge_index)
-        else:
-            loss = model.recon_loss(z, train_pos_edge_index)
-
+        loss, rec_loss, c_loss = model.complex_loss(z, alphas[epoch], train_pos_edge_index)
         loss.backward()
         optimizer.step()
 
-        auc, ap = test(data, model)
-        if epoch >= args.slack - 1:
-            print('Epoch: {}, Loss: {:.4f}, Reconstruction: {:.4f}, Clustering: {:.4f}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, loss, rec_loss, c_loss, auc, ap))
-        else:
-            print('Epoch: {}, Loss: {:.4f}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, loss, auc, ap))
+        pred = model.assign_clusters(z).cpu().detach().numpy()
+        acc, nmi, ari, f1 = calc_metrics(pred, y)
+        acc_list.append(acc)
+        nmi_list.append(nmi)
+        ari_list.append(ari)
+        f1_list.append(f1)
+        rec_loss_list.append(rec_loss)
+        c_loss_list.append(c_loss)
+        print('Epoch: {}, Loss: {:.4f}, Reconstruction: {:.4f}, Clustering: {:.4f}, Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(epoch, loss, rec_loss, c_loss, acc, nmi, ari, f1))
 
-        # if epoch == 0 or epoch % 50 == 0 or epoch == (args.epochs - 1):
-        #     model.eval()
-        #     z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
-        #     tsne(z, y, args, epoch)
+        # if args.save:
+        #     if (epoch != 0 and epoch % 500 == 0) or epoch == (args.epochs - 1):
+        #         model.eval()
+        #         z = model.encode(original_data.x, original_data.edge_index).cpu().detach().numpy()
+        #         centers = model.mu.cpu().detach()
+        #         plot_centers(z, centers, y, args, epoch)
+        #         model.train()
 
     print("Optimization Finished!")
     x = original_data.x
@@ -143,4 +132,13 @@ def run_kspace_gnn(args):
     print('Model    Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
 
     if args.save:
-        save_metrics(args, [acc, nmi, ari, f1])
+
+        dims = '_'.join([str(v) for v in args.dims])
+        directory = 'pickles/{}/{}_a_{}_a-max_{}_temperature_{}_epochs_{}_lr_{}_dropout_{}_dims'.format(args.method, args.alpha, args.a_max, args.temperature, args.epochs, args.learning_rate, args.dropout, dims)
+        file_count = get_file_count(directory, 'reclosses')
+        pickle.dump(acc_list, open('{}/accs_{}.pickle'.format(directory, file_count), 'wb'))
+        pickle.dump(nmi_list, open('{}/nmis_{}.pickle'.format(directory, file_count), 'wb'))
+        pickle.dump(ari_list, open('{}/aris_{}.pickle'.format(directory, file_count), 'wb'))
+        pickle.dump(f1_list, open('{}/f1s_{}.pickle'.format(directory, file_count), 'wb'))
+        pickle.dump(rec_loss_list, open('{}/reclosses_{}.pickle'.format(directory, file_count), 'wb'))
+        pickle.dump(c_loss_list, open('{}/clustlosses_{}.pickle'.format(directory, file_count), 'wb'))

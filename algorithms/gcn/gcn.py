@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import tensorflow as tf
-from utils.utils import preprocess_adj, preprocess_features, sparse_to_tuple, chebyshev_polynomials, load_data, save_results
+from utils.utils import preprocess_adj, preprocess_features, sparse_to_tuple, chebyshev_polynomials, load_data, save_embeddings
 from algorithms.gcn.models import GCN
 
 
@@ -97,4 +97,4 @@ def run_gcn(args):
     embeds = model.embed((features, support), training=False)
     # save embeddings
     embeds = [e.numpy() for e in embeds]
-    save_results(args, embeds)
+    save_embeddings(args, embeds)

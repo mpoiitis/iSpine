@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from algorithms.vgae.models import VGAE, GAE
-from utils.utils import preprocess_adj, preprocess_features, load_data, sparse_to_tuple, chebyshev_polynomials, save_results
+from utils.utils import preprocess_adj, preprocess_features, load_data, sparse_to_tuple, chebyshev_polynomials, save_embeddings
 
 
 def run_vgae(args):
@@ -93,6 +93,6 @@ def run_vgae(args):
     embeds = model.embed((features, support))
     # save embeddings
     embeds = [e.numpy() for e in embeds]
-    save_results(args, embeds)
+    save_embeddings(args, embeds)
 
 
