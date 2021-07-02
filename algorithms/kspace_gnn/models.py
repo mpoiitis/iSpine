@@ -19,14 +19,15 @@ class GCNEncoder(torch.nn.Module):
         for i in range(len(dims) - 1):
             conv = GCNConv(dims[i], dims[i + 1], cached=True)  # cached only for transductive
             self.layers.append(conv)
-        self.norm = BatchNorm(dims[1])
+        # self.norm = BatchNorm(dims[1])
 
     def forward(self, x, edge_index):
         num_layers = len(self.layers)
         for idx, layer in enumerate(self.layers):
             if idx < num_layers - 1:
                 x = layer(x, edge_index)
-                x = self.norm(F.relu(x))
+                # x = self.norm(F.relu(x))
+                x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
             else:
                 x = layer(x, edge_index)

@@ -14,10 +14,13 @@ class Encoder(torch.nn.Module):
         self.layers = torch.nn.ModuleList()
         for i in range(len(dims) - 1):
             self.layers.append(torch.nn.Linear(dims[i], dims[i + 1]))
+            # self.layers.append(torch.nn.Conv1d(dims[i], dims[i + 1], 1))
             _init_weights(self.layers[-1])
 
     def forward(self, x):
         num_layers = len(self.layers)
+        # x = x.view((x.shape[0], 1, -1))
+        # x = x.transpose(2, 1)
 
         for idx, layer in enumerate(self.layers):
             if idx < num_layers - 1:
@@ -26,6 +29,10 @@ class Encoder(torch.nn.Module):
                 x = F.dropout(x, p=self.dropout, training=self.training)
             else:
                 x = layer(x)
+
+        # x = x.transpose(2, 1).contiguous()
+        # x = x.view((x.shape[0], -1))
+
         return x
 
 
@@ -59,13 +66,14 @@ class InnerProductDecoder(torch.nn.Module):
         return torch.sigmoid(value) if sigmoid else value
 
 
-class kSPACE(torch.nn.Module):
+class PointSpectrum(torch.nn.Module):
 
     def __init__(self, dims, num_centers, dropout, temperature):
-        super(kSPACE, self).__init__()
+        super(PointSpectrum, self).__init__()
         embedding_dim = dims[-1]
         self.data_dim = dims[0]
-        self.encoder = Encoder(dims, dropout)
+        # self.encoder = Encoder(dims, dropout)
+        self.encoder = PointNetST(dims, dropout, False)
         self.decoder = InnerProductDecoder()
 
         self.clusterNet = ClusterNet(num_centers, temperature, embedding_dim)
@@ -159,7 +167,7 @@ class PointNetST(torch.nn.Module):
     """
     As proposed in "On Universal Equivariant Set Networks" paper. It is a PointNet with a single DeepSet layer.
     """
-    def __init__(self, dims, regression=False):
+    def __init__(self, dims, dropout, regression=False):
         """
 
         :param dims: should be [initial_dim, width, ..., width, output_dim]
@@ -168,6 +176,7 @@ class PointNetST(torch.nn.Module):
         super(PointNetST, self).__init__()
         self.out_features = dims[-1]
         self.regression = regression
+        self.dropout = dropout
 
         self.layers = torch.nn.ModuleList()
         for i in range(len(dims) - 1):
@@ -186,6 +195,7 @@ class PointNetST(torch.nn.Module):
                 x = layer(x)
             else:
                 x = F.relu(layer(x))
+                x = F.dropout(x, p=self.dropout, training=self.training)
         x = x.transpose(2, 1).contiguous()
         x = x.view((x.shape[0], -1))
         if self.regression:

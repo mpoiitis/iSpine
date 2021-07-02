@@ -5,7 +5,7 @@ from algorithms.vgae.vgae import run_vgae
 from algorithms.agc.agc import run_agc
 from algorithms.dane.dane import run_dane
 from algorithms.gat.gat import run_gat
-from algorithms.kspace.kspace import run_kspace
+from algorithms.pointspectrum.pointspectrum import run_pointSpectrum
 from algorithms.kspace_gnn.kspace_gnn import run_kspace_gnn
 from algorithms.age.age import run_age
 
@@ -98,11 +98,11 @@ def parse_args():
 
     kSpace_parser = embedding_subparsers.add_parser('kspace', help='kSPACE algorithm')
     kSpace_parser.add_argument("--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
-    kSpace_parser.add_argument("-d", "--dims", nargs='+', type=int, default=[200], help='Number of units in hidden layers for the autoencoder. Example --dims 500 200. Default is [200].')
+    kSpace_parser.add_argument("-d", "--dims", nargs='+', type=int, default=[100], help='Number of units in hidden layers for the autoencoder. Example --dims 500 200. Default is [100].')
     kSpace_parser.add_argument("-bs", "--bs", type=int, default=100, help="Batch size. Default is 100.")
-    kSpace_parser.add_argument("-dr", "--dropout", default=0.4, type=float, help="Dropout rate (1 - keep probability). Default is 0.4.")
+    kSpace_parser.add_argument("-dr", "--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
     kSpace_parser.add_argument("-lr", "--learning-rate", default=0.01, type=float, help="Initial learning rate. Default is 0.01.")
-    kSpace_parser.add_argument("-e", "--epochs", default=2000, type=int, help="Number of epochs. Default is 2000.")
+    kSpace_parser.add_argument("-e", "--epochs", default=500, type=int, help="Number of epochs. Default is 2000.")
     kSpace_parser.add_argument("-p", "--power", default=8, type=int, help="The upper bound of convolution order to search. Default is 8.")
     kSpace_parser.add_argument("-t", "--temperature", default=10, type=int, help="The degree to which the differentiable layer approximates KMeans clustering. Default is 10.")
     kSpace_parser.add_argument("-a", "--alpha", default=1, type=float, help="The reconstruction loss factor. Default is 1.")
@@ -113,11 +113,11 @@ def parse_args():
     kSpaceGnn_parser.add_argument("-r", "--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
     kSpaceGnn_parser.add_argument("-d", "--dims", nargs='+', type=int, default=[32], help='Number of units in hidden layers. Example --dims 500 200. Default is [32].')
     kSpaceGnn_parser.add_argument("-dr", "--dropout", default=0.4, type=float, help="Dropout rate (1 - keep probability). Default is 0.4.")
-    kSpaceGnn_parser.add_argument("-lr", "--learning-rate", default=0.001, type=float, help="Initial learning rate. Default is 0.001.")
+    kSpaceGnn_parser.add_argument("-lr", "--learning-rate", default=0.005, type=float, help="Initial learning rate. Default is 0.001.")
     kSpaceGnn_parser.add_argument("-e", "--epochs", default=2000, type=int, help="Number of epochs. Default is 2000.")
     kSpaceGnn_parser.add_argument("-t", "--temperature", default=10, type=int, help="The degree to which the differentiable layer approximates KMeans clustering. Default is 10.")
     kSpaceGnn_parser.add_argument("-a-max", "--a-max", default=1, type=float, help="The upper bound of alpha rate. Default is 1.")
-    kSpaceGnn_parser.add_argument("-a", "--alpha", default='const', type=str, choices=['linear', 'exp', 'const'], help="How to calculate alpha for every training epoch. [linear, exp, const]. Default is const")
+    kSpaceGnn_parser.add_argument("-a", "--alpha", default='linear', type=str, choices=['linear', 'exp', 'const'], help="How to calculate alpha for every training epoch. [linear, exp, const]. Default is const")
     kSpaceGnn_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the results.")
 
     args = parser.parse_args()
@@ -141,7 +141,7 @@ if __name__ == "__main__":
     elif args.method == 'gat':
         run_gat(args)
     elif args.method == 'kspace':
-        run_kspace(args)
+        run_pointSpectrum(args)
     elif args.method == 'kspace_gnn':
         for i in range(args.repeats):
             run_kspace_gnn(args)

@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 import torch
 import pickle
 from sklearn.cluster import KMeans
-from .models import kSPACE
+from .models import PointSpectrum
 from utils.utils import largest_eigval_smoothing_filter, preprocess_adj, get_file_count
 from utils.plots import plot_centers
 from .utils import calc_metrics, CustomDataset, get_hyperparams, cluster_kl_loss
@@ -32,7 +32,7 @@ def print_data_stats(dataset):
     print(f'Is undirected: {data.is_undirected()}')
 
 
-def run_kspace(args):
+def run_pointSpectrum(args):
     if args.input == 'cora':
         dataset = Planetoid(root='data/Planetoid', name='Cora', transform=NormalizeFeatures())
     elif args.input == 'citeseer':
@@ -66,7 +66,7 @@ def run_kspace(args):
     data = train_test_split_edges(data)  # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
 
     # CREATE MODEL
-    model = kSPACE(dims, m, args.dropout, args.temperature)
+    model = PointSpectrum(dims, m, args.dropout, args.temperature)
     # Move to GPU if available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
