@@ -11,25 +11,6 @@ import os
 EPS = 1e-15
 
 
-def get_alpha(s_max, epochs, type='linear'):
-    """
-    Calculate evenly spaced alphas for each epoch based on function type
-    :param s_max: the maximum value of a. Last epoch will have this value
-    :param epochs: number of epochs
-    :param type: function type
-    :return: a numpy array of shape (epochs, 1)
-    """
-    if type == 'linear':
-        return np.linspace(0, s_max, epochs).tolist()
-    elif type == 'exp':
-        # return [s_max * (np.exp(0.025*x) - 1) for x in range(epochs)]
-        return [(np.exp((np.log(1+s_max)/epochs) * x) - 1) for x in range(epochs)]
-    elif type == 'const':
-        return [s_max] * epochs
-    else:
-        return
-
-
 def cluster_kl_loss(q):
     # p_nom = (q ** 2) / torch.sum(q ** 2, dim=0)
     # p_denom = torch.sum(p_nom, dim=1)

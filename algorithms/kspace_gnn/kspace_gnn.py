@@ -1,17 +1,14 @@
 import numpy as np
-import scipy.sparse as sp
 import torch
 import pickle
-import os
 from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import NormalizeFeatures
-from torch_geometric.utils import to_dense_adj, train_test_split_edges
+from torch_geometric.utils import train_test_split_edges
 from sklearn.cluster import KMeans
-from sklearn.metrics import pairwise_distances
-from .utils import get_alpha, calc_metrics
+from .utils import calc_metrics
 from .models import ClusterGAE
 from utils.plots import plot_centers
-from utils.utils import get_file_count, largest_eigval_smoothing_filter, preprocess_adj
+from utils.utils import get_file_count, get_factor
 
 
 def test(data, model):
@@ -48,27 +45,6 @@ def print_data_stats(dataset):
     print(f'Is undirected: {data.is_undirected()}')
 
 
-def filter_graph(data, power):
-
-    adj = to_dense_adj(data.edge_index)
-    adj = adj.reshape(adj.shape[1], adj.shape[2])
-    adj = sp.coo_matrix(adj.cpu().numpy())
-    adj_normalized = preprocess_adj(adj)
-
-    h = largest_eigval_smoothing_filter(adj_normalized)
-    h_k = h ** power
-    X = h_k.dot(data.x)
-
-    return X
-
-
-def get_similarity(data, power=8):
-    X = filter_graph(data, power)
-    S = 1 - pairwise_distances(X, metric="cosine")
-
-    return S
-
-
 def run_kspace_gnn(args):
 
     if args.input == 'cora':
@@ -92,12 +68,10 @@ def run_kspace_gnn(args):
     y = original_data.y.cpu()
     m = len(np.unique(y))  # number of clusters
 
-    X = get_similarity(data, 8)
-
     data = train_test_split_edges(data)  # apart from the classic usage, it also creates positive edges (contained) and negative ones (not contained in graph)
 
     model = ClusterGAE(dims, m, args.dropout, args.temperature)
-    alphas = get_alpha(args.a_max, args.epochs, args.alpha)
+    alphas = get_factor(args.a_max, args.epochs, args.alpha)
 
     # Move to GPU if available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

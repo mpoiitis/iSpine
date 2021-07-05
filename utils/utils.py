@@ -506,23 +506,30 @@ def save_cluster_metrics(args, data, columns=['Epoch', 'Acc', 'NMI', 'ARI', 'F1'
         df.to_csv('{}/{}.csv'.format(directory, filename), mode='w', index=None, header=True)
 
 
-def get_alpha(s_max, epochs, type='linear'):
+def get_factor(s_max, epochs, type='linear'):
     """
-    Calculate evenly spaced alphas for each epoch based on function type
+    Calculate evenly spaced values for each epoch based on function type
     :param s_max: the maximum value of a. Last epoch will have this value
     :param epochs: number of epochs
     :param type: function type
-    :return: a numpy array of shape (epochs, 1)
     """
     if type == 'linear':
-        return np.linspace(0, s_max, epochs).tolist()
+        values = np.linspace(0, s_max, epochs).tolist()
+    elif type == 'lineardec':
+        values = np.linspace(0, s_max, epochs).tolist()
+        values = values[::-1]
     elif type == 'exp':
         # return [s_max * (np.exp(0.025*x) - 1) for x in range(epochs)]
-        return [(np.exp((np.log(1+s_max)/epochs) * x) - 1) for x in range(epochs)]
+        values = [(np.exp((np.log(1+s_max)/epochs) * x) - 1) for x in range(epochs)]
+    elif type == 'expdec':
+        values = [(np.exp((np.log(1+s_max)/epochs) * x) - 1) for x in range(epochs)]
+        values = values[::-1]
     elif type == 'const':
-        return [s_max] * epochs
+        values = [s_max] * epochs
     else:
         return
+
+    return values
 
 
 def get_file_count(directory, str_to_search):

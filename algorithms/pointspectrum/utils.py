@@ -1,3 +1,5 @@
+import csv
+import os
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -65,6 +67,30 @@ def calc_metrics(y_pred, y_true):
     f1_macro = metrics.f1_score(y_true, y_pred, average='macro')
 
     return acc, nmi, ari, f1_macro
+
+
+def write_to_csv(args, best_epoch, best_acc, best_nmi, best_ari, best_f1, total_time):
+    directory = 'output/'
+
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    filename = '{}/results.csv'.format(directory)
+    file_exists = os.path.isfile(filename)
+
+    with open(filename, mode='a', newline='') as file:
+        headers = ['Dataset', 'Dims', 'Dropout', 'Epochs', 'lr', 'Power', 'Temperature', 'Alpha', 'Alpha fun', 'Beta', 'Beta fun', 'Acc', 'Nmi', 'Ari', 'F1', 'Best Epoch', 'Total Time']
+        writer = csv.DictWriter(file, delimiter=',', fieldnames=headers)
+
+        if not file_exists:
+            writer.writeheader()
+
+        dims = '_'.join([str(v) for v in args.dims])
+        writer.writerow({'Dataset': args.input, 'Dims': dims, 'Dropout': args.dropout, 'Epochs': args.epochs, 'lr': args.learning_rate,
+                         'Power': args.power, 'Temperature': args.temperature, 'Alpha': args.alpha, 'Alpha fun': args.a_prog, 'Beta': args.beta,
+                         'Beta fun': args.b_prog, 'Acc': best_acc, 'Nmi': best_nmi, 'Ari': best_ari, 'F1': best_f1, 'Best Epoch': best_epoch, 'Total Time': total_time})
+
+    return
 
 
 class CustomDataset(Dataset):

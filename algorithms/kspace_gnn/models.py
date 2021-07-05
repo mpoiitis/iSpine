@@ -217,16 +217,16 @@ class ClusterGAE(torch.nn.Module):
         return pos_loss + neg_loss
 
     def complex_loss(self, z, alpha, pos_edge_index, neg_edge_index=None):
-        rec_loss = self.recon_loss(z, pos_edge_index, neg_edge_index=neg_edge_index)
+        r_loss = self.recon_loss(z, pos_edge_index, neg_edge_index=neg_edge_index)
 
         self.mu, self.r = self.clusterNet(z, 10)  # get centers, soft assignments and distribution
 
         c_loss = cluster_kl_loss(self.r)
         # correction_factor = torch.floor(torch.log10(rec_loss) - torch.log10(c_loss))
         # c_loss = c_loss * (10 ** correction_factor)
-        loss = (1-alpha) * rec_loss + alpha * c_loss
+        loss = (1-alpha) * r_loss + alpha * c_loss
 
-        return loss, rec_loss, c_loss
+        return loss, r_loss, c_loss
 
     def assign_clusters(self, z):
         _, r = self.clusterNet(z)

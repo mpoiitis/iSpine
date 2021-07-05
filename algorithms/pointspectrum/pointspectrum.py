@@ -3,14 +3,14 @@ import scipy.sparse as sp
 from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import NormalizeFeatures
 from torch_geometric.utils import to_dense_adj, train_test_split_edges
-from torch.utils.data import DataLoader
 import torch
 import pickle
+import time
 from sklearn.cluster import KMeans
 from .models import PointSpectrum
-from utils.utils import largest_eigval_smoothing_filter, preprocess_adj, get_file_count
+from utils.utils import largest_eigval_smoothing_filter, preprocess_adj, get_file_count, get_factor
 from utils.plots import plot_centers
-from .utils import calc_metrics, CustomDataset, get_hyperparams, cluster_kl_loss
+from .utils import calc_metrics, write_to_csv
 
 
 def print_data_stats(dataset):
@@ -67,6 +67,9 @@ def run_pointSpectrum(args):
 
     # CREATE MODEL
     model = PointSpectrum(dims, m, args.dropout, args.temperature)
+    alphas = get_factor(args.alpha, args.epochs, args.a_prog)
+    betas = get_factor(args.beta, args.epochs, args.b_prog)
+
     # Move to GPU if available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
@@ -75,6 +78,8 @@ def run_pointSpectrum(args):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     for _ in range(args.repeats):
+        start = time.time()
+
         acc_list = []
         nmi_list = []
         ari_list = []
@@ -92,7 +97,7 @@ def run_pointSpectrum(args):
             optimizer.zero_grad()
             z = model.encode(X)
 
-            loss, r_loss, c_loss = model.loss(z, args.alpha, args.beta, train_pos_edge_index)
+            loss, r_loss, c_loss = model.loss(z, alphas[epoch], betas[epoch], train_pos_edge_index)
             loss.backward()
             optimizer.step()
 
@@ -126,7 +131,8 @@ def run_pointSpectrum(args):
             #         centers = model.mu.cpu().detach()
             #         plot_centers(z, centers, y, args, epoch)
             #         model.train()
-
+        total_time = time.time() - start
+        print("Total time: ", total_time)
         print("Optimization Finished!")
         model.eval()
         z = model.encode(X)
@@ -141,8 +147,9 @@ def run_pointSpectrum(args):
         print('Model    Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(acc * 100, nmi * 100, ari * 100, f1 * 100))
         print('Best    Epoch= {}    Acc= {:.4f}%    Nmi= {:.4f}%    Ari= {:.4f}%   Macro-f1= {:.4f}%'.format(best_epoch, best_acc * 100, best_nmi * 100, best_ari * 100, best_f1 * 100))
         if args.save:
+
             dims = '_'.join([str(v) for v in args.dims])
-            directory = 'pickles/{}/{}_a_{}_b_{}_temperature_{}_epochs_{}_lr_{}_dropout_{}_dims_{}_power'.format(args.method, args.alpha, args.beta, args.temperature, args.epochs, args.learning_rate, args.dropout, dims, args.power)
+            directory = 'pickles/{}/{}_a_{}_a_fun_{}_b _{}_b_fun_{}_temperature_{}_epochs_{}_lr_{}_dropout_{}_dims_{}_power'.format(args.method, args.alpha, args.a_prog, args.beta, args.b_prog, args.temperature, args.epochs, args.learning_rate, args.dropout, dims, args.power)
             file_count = get_file_count(directory, 'reclosses')
             torch.save(model.state_dict(), '{}/model'.format(directory))
             pickle.dump(X, open('{}/X.pickle'.format(directory, file_count), 'wb'))
@@ -153,3 +160,4 @@ def run_pointSpectrum(args):
             pickle.dump(r_loss_list, open('{}/reclosses_{}.pickle'.format(directory, file_count), 'wb'))
             pickle.dump(c_loss_list, open('{}/clustlosses_{}.pickle'.format(directory, file_count), 'wb'))
 
+            write_to_csv(args, best_epoch, best_acc, best_nmi, best_ari, best_f1, total_time)
