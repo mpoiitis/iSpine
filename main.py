@@ -96,7 +96,7 @@ def parse_args():
     age_parser.add_argument('--dataset', type=str, default='citeseer', help='Name of dataset. Used for saving results. Default is citeseer')
     age_parser.add_argument('--no-cuda', action='store_true', default=False, help='If given, disables CUDA training.')
 
-    point_spectrum_parser = embedding_subparsers.add_parser('pointSpectrum', help='pointSpectrum algorithm')
+    point_spectrum_parser: ArgumentParser = embedding_subparsers.add_parser('pointSpectrum', help='pointSpectrum algorithm')
     point_spectrum_parser.add_argument("-r", "--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
     point_spectrum_parser.add_argument("-d", "--dims", nargs='+', type=int, default=[100], help='Number of units in hidden layers for the autoencoder. Example --dims 500 200. Default is [100].')
     point_spectrum_parser.add_argument("-dr", "--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
@@ -108,6 +108,7 @@ def parse_args():
     point_spectrum_parser.add_argument("-ap", "--a-prog", default='linear', type=str, choices=['linear', 'lineardec', 'exp', 'expdec', 'const'], help="How to calculate alpha for every training epoch. [linear, lineardec, exp, expdec, const]. Default is const")
     point_spectrum_parser.add_argument("-b", "--beta", default=1, type=float, help="The point loss factor. Default is 1.")
     point_spectrum_parser.add_argument("-bp", "--b-prog", default='linear', type=str, choices=['linear', 'lineardec', 'exp', 'expdec', 'const'], help="How to calculate beta for every training epoch. [linear, lineardec, exp, expdec, const]. Default is const")
+    point_spectrum_parser.add_argument("-es", "--es", default=None, type=int, help="If given, it enables early stopping, tracking the given number of epochs.")
     point_spectrum_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 
     kSpaceGnn_parser = embedding_subparsers.add_parser('kspace_gnn', help='kSPACE GNN algorithm')
@@ -142,7 +143,8 @@ if __name__ == "__main__":
     elif args.method == 'gat':
         run_gat(args)
     elif args.method == 'pointSpectrum':
-        run_pointSpectrum(args)
+        for _ in range(args.repeats):
+            run_pointSpectrum(args)
     elif args.method == 'kspace_gnn':
         for i in range(args.repeats):
             run_kspace_gnn(args)

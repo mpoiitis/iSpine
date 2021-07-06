@@ -75,7 +75,7 @@ def write_to_csv(args, best_epoch, best_acc, best_nmi, best_ari, best_f1, total_
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-    filename = '{}/results.csv'.format(directory)
+    filename = '{}/best_results.csv'.format(directory)
     file_exists = os.path.isfile(filename)
 
     with open(filename, mode='a', newline='') as file:
