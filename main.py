@@ -97,7 +97,6 @@ def parse_args():
     age_parser.add_argument('--no-cuda', action='store_true', default=False, help='If given, disables CUDA training.')
 
     point_spectrum_parser: ArgumentParser = embedding_subparsers.add_parser('pointSpectrum', help='pointSpectrum algorithm')
-    point_spectrum_parser.add_argument("-r", "--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
     point_spectrum_parser.add_argument("-d", "--dims", nargs='+', type=int, default=[100], help='Number of units in hidden layers for the autoencoder. Example --dims 500 200. Default is [100].')
     point_spectrum_parser.add_argument("-dr", "--dropout", default=0.2, type=float, help="Dropout rate (1 - keep probability). Default is 0.2.")
     point_spectrum_parser.add_argument("-lr", "--learning-rate", default=0.01, type=float, help="Initial learning rate. Default is 0.01.")
@@ -143,8 +142,7 @@ if __name__ == "__main__":
     elif args.method == 'gat':
         run_gat(args)
     elif args.method == 'pointSpectrum':
-        for _ in range(args.repeats):
-            run_pointSpectrum(args)
+        run_pointSpectrum(args)
     elif args.method == 'kspace_gnn':
         for i in range(args.repeats):
             run_kspace_gnn(args)

@@ -13,9 +13,10 @@ from utils.utils import largest_eigval_smoothing_filter, preprocess_adj, get_fil
 from utils.plots import plot_centers
 from .utils import calc_metrics, write_to_csv
 
-torch.manual_seed(0)
-np.random.seed(0)
-random.seed(0)
+# Enable this if you want to get reproducible results
+# torch.manual_seed(0)
+# np.random.seed(0)
+# random.seed(0)
 
 def print_data_stats(dataset):
     print()
