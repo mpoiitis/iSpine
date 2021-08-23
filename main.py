@@ -6,7 +6,7 @@ from algorithms.agc.agc import run_agc
 from algorithms.dane.dane import run_dane
 from algorithms.gat.gat import run_gat
 from algorithms.pointspectrum.pointspectrum import run_pointSpectrum
-# from algorithms.pointspectrum.link_prediction import run_pointSpectrum
+from algorithms.pointspectrum.link_prediction import run_pointSpectrum as rp
 from algorithms.kspace_gnn.kspace_gnn import run_kspace_gnn
 from algorithms.age.age import run_age
 
@@ -110,6 +110,7 @@ def parse_args():
     point_spectrum_parser.add_argument("-bp", "--b-prog", default='linear', type=str, choices=['linear', 'lineardec', 'exp', 'expdec', 'const'], help="How to calculate beta for every training epoch. [linear, lineardec, exp, expdec, const]. Default is const.")
     point_spectrum_parser.add_argument("-enc", "--enc", default='pointNet', type=str, choices=['mlp', 'cnn', 'pointNet'], help="Encoder type. [mlp, cnn, pointNet]. Default is pointNet.")
     point_spectrum_parser.add_argument("-es", "--es", default=None, type=int, help="If given, it enables early stopping, tracking the given number of epochs.")
+    point_spectrum_parser.add_argument("--lp", dest='link_pred', action='store_true', help="If given, it runs PointSpectrum in link prediction mode.")
     point_spectrum_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 
     kSpaceGnn_parser = embedding_subparsers.add_parser('kspace_gnn', help='kSPACE GNN algorithm')
@@ -143,7 +144,10 @@ if __name__ == "__main__":
     elif args.method == 'gat':
         run_gat(args)
     elif args.method == 'pointSpectrum':
-        run_pointSpectrum(args)
+        if args.link_pred:
+            rp(args)
+        else:
+            run_pointSpectrum(args)
     elif args.method == 'kspace_gnn':
         run_kspace_gnn(args)
     elif args.method == 'age':
