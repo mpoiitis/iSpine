@@ -6,6 +6,7 @@ from algorithms.agc.agc import run_agc
 from algorithms.dane.dane import run_dane
 from algorithms.gat.gat import run_gat
 from algorithms.pointspectrum.pointspectrum import run_pointSpectrum
+# from algorithms.pointspectrum.link_prediction import run_pointSpectrum
 from algorithms.kspace_gnn.kspace_gnn import run_kspace_gnn
 from algorithms.age.age import run_age
 
@@ -104,14 +105,14 @@ def parse_args():
     point_spectrum_parser.add_argument("-p", "--power", default=8, type=int, help="The upper bound of convolution order to search. Default is 8.")
     point_spectrum_parser.add_argument("-t", "--temperature", default=10, type=int, help="The degree to which the differentiable layer approximates KMeans clustering. Default is 10.")
     point_spectrum_parser.add_argument("-a", "--alpha", default=1, type=float, help="The reconstruction loss factor. Default is 1.")
-    point_spectrum_parser.add_argument("-ap", "--a-prog", default='linear', type=str, choices=['linear', 'lineardec', 'exp', 'expdec', 'const'], help="How to calculate alpha for every training epoch. [linear, lineardec, exp, expdec, const]. Default is const")
+    point_spectrum_parser.add_argument("-ap", "--a-prog", default='linear', type=str, choices=['linear', 'lineardec', 'exp', 'expdec', 'const'], help="How to calculate alpha for every training epoch. [linear, lineardec, exp, expdec, const]. Default is const.")
     point_spectrum_parser.add_argument("-b", "--beta", default=1, type=float, help="The point loss factor. Default is 1.")
-    point_spectrum_parser.add_argument("-bp", "--b-prog", default='linear', type=str, choices=['linear', 'lineardec', 'exp', 'expdec', 'const'], help="How to calculate beta for every training epoch. [linear, lineardec, exp, expdec, const]. Default is const")
+    point_spectrum_parser.add_argument("-bp", "--b-prog", default='linear', type=str, choices=['linear', 'lineardec', 'exp', 'expdec', 'const'], help="How to calculate beta for every training epoch. [linear, lineardec, exp, expdec, const]. Default is const.")
+    point_spectrum_parser.add_argument("-enc", "--enc", default='pointNet', type=str, choices=['mlp', 'cnn', 'pointNet'], help="Encoder type. [mlp, cnn, pointNet]. Default is pointNet.")
     point_spectrum_parser.add_argument("-es", "--es", default=None, type=int, help="If given, it enables early stopping, tracking the given number of epochs.")
     point_spectrum_parser.add_argument("--save", dest='save', action='store_true', help="If given, it saves the embedding on disk.")
 
     kSpaceGnn_parser = embedding_subparsers.add_parser('kspace_gnn', help='kSPACE GNN algorithm')
-    kSpaceGnn_parser.add_argument("-r", "--repeats", default=1, type=int, help="How many times to repeat the experiment. Default is 1.")
     kSpaceGnn_parser.add_argument("-d", "--dims", nargs='+', type=int, default=[32], help='Number of units in hidden layers. Example --dims 500 200. Default is [32].')
     kSpaceGnn_parser.add_argument("-dr", "--dropout", default=0.4, type=float, help="Dropout rate (1 - keep probability). Default is 0.4.")
     kSpaceGnn_parser.add_argument("-lr", "--learning-rate", default=0.005, type=float, help="Initial learning rate. Default is 0.001.")
@@ -144,12 +145,7 @@ if __name__ == "__main__":
     elif args.method == 'pointSpectrum':
         run_pointSpectrum(args)
     elif args.method == 'kspace_gnn':
-        for i in range(args.repeats):
-            run_kspace_gnn(args)
-        # # from algorithms.kspace_gnn.utils import plot_metrics
-        # # plot_metrics('input_cora-method_kspace_gnn-repeats_10-dims_500_500_250_200_100-dropout_0.2-learning_rate_0.001-epochs_500-p_epochs_100-a_max_1-slack_400-alpha_const-save_True')
-        # from algorithms.kspace_gnn.utils import plot_metrics_for_layers
-        # plot_metrics_for_layers()
+        run_kspace_gnn(args)
     elif args.method == 'age':
         run_age(args)
     else:

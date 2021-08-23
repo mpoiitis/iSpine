@@ -1,5 +1,6 @@
 from sklearn.manifold import TSNE
 from textwrap import wrap
+from tqdm import tqdm
 from matplotlib import cm
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -10,8 +11,9 @@ import pickle
 
 plt.rcParams.update({'font.size': 18, 'legend.fontsize': 16, 'lines.linewidth': 2})
 
-colormap = cm.get_cmap('Spectral', 3)
-colors = colormap(range(3))[::-1]
+# colormap = cm.get_cmap('RdYlGn_r', 3)
+# colors = colormap(range(3))[::-1]
+colors = ['#5e3c99', '#b2abd2', '#fdb863', '#e66101']
 
 
 def tsne(embeds, gnd, args, epoch=-1):
@@ -36,8 +38,6 @@ def tsne(embeds, gnd, args, epoch=-1):
 
 
 def plot_centers(embeds, centers, gnd, args, epoch=-1):
-    figure = plt.figure(figsize=(11.7, 8.27))
-    palette = sns.color_palette("bright", len(np.unique(gnd)))
     data = np.concatenate((embeds, centers), axis=0)
     tsne = TSNE(n_components=2, perplexity=30)
     data_embedded = tsne.fit_transform(data)
@@ -45,105 +45,32 @@ def plot_centers(embeds, centers, gnd, args, epoch=-1):
     X_embedded = data_embedded[:-centers.shape[0], :]
     centers_embedded = data_embedded[-centers.shape[0]:, :]
 
-    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=gnd, legend='full', palette=palette)
-    plt.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='black', marker='X')
-    if epoch == -1:
-        plt.title('T-SNE')
-    else:
-        plt.title('T-SNE, epoch: {}'.format(epoch))
+    palette = sns.color_palette('Set3', len(np.unique(gnd)))
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=gnd, legend=None, palette=palette)
+    ax.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='black', marker='X')
+
+    ax.xaxis.set_major_locator(plt.NullLocator())
+    ax.yaxis.set_major_locator(plt.NullLocator())
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    plt.axis('equal')
+    plt.legend(loc='best', ncol=1, frameon=False)
     plt.tight_layout()
 
     dims = '_'.join([str(v) for v in args.dims])
     if args.method == 'kspace_gnn':
         directory = 'figures/{}/tsne/{}_a_{}_a-max_{}_temperature_{}_epochs_{}_lr_{}_dropout_{}_dims'.format(args.method, args.alpha, args.a_max, args.temperature, args.epochs, args.learning_rate, args.dropout, dims)
     else:
-        directory = 'figures/{}/tsne/{}_a_{}_b_{}_g_{}_temperature_{}_epochs_{}_lr_{}_dropout_{}_dims'.format(args.method, args.alpha, args.beta, args.gamma, args.temperature, args.epochs, args.learning_rate, args.dropout, dims)
+        directory = 'figures/{}/tsne/{}_{}_{}_a_{}_a_fun_{}_b _{}_b_fun_{}_temperature_{}_epochs_{}_lr_{}_dropout_{}_dims_{}_power'.format(args.method, args.enc, args.input, args.alpha, args.a_prog, args.beta, args.b_prog, args.temperature, args.epochs, args.learning_rate, args.dropout, dims, args.power)
     if not os.path.exists(directory):
         os.makedirs(directory)
     if epoch == -1:
-        plt.savefig('{}/total.png'.format(directory), format='png')
+        plt.savefig('{}/total.pdf'.format(directory), format='pdf')
     else:
-        plt.savefig('{}/epoch_{}.png'.format(directory, epoch), format='png')
-
-
-def plot_results(config, pivot='Learning Rate'):
-
-    filepath = 'figures/kspace/{}'.format(config['Model'])
-    if not os.path.exists(filepath):
-        os.makedirs(filepath)
-
-    data = pd.read_csv('output/kspace/results.csv')
-    for k, v in config.items():
-        data = data.loc[data[k] == v]
-
-    data = data.sort_values(pivot)
-
-    unique_xaxis = np.unique(data[pivot])
-
-    if config['Dataset'] == 'cora':
-        agc_acc = len(unique_xaxis) * [0.6892]
-        agc_f1 = len(unique_xaxis) * [0.6561]
-        agc_nmi = len(unique_xaxis) * [0.5368]
-    elif config['Dataset'] == 'citeseer':
-        agc_acc = len(unique_xaxis) * [0.6700]
-        agc_f1 = len(unique_xaxis) * [0.6248]
-        agc_nmi = len(unique_xaxis) * [0.4113]
-    elif config['Dataset'] == 'pubmed':
-        agc_acc = len(unique_xaxis) * [0.6978]
-        agc_f1 = len(unique_xaxis) * [0.6872]
-        agc_nmi = len(unique_xaxis) * [0.3159]
-    else:
-        return
-
-    acc_means = data.groupby(pivot, as_index=False)['Accuracy'].mean()
-    nmi_means = data.groupby(pivot, as_index=False)['NMI'].mean()
-    f1s_means = data.groupby(pivot, as_index=False)['F1'].mean()
-
-    acc_stds = data.groupby(pivot, as_index=False)['Accuracy'].std()
-    nmi_stds = data.groupby(pivot, as_index=False)['NMI'].std()
-    f1_stds = data.groupby(pivot, as_index=False)['F1'].std()
-
-    fig, ax = plt.subplots(3, sharex=True)
-    ax[0].plot(acc_means[pivot], acc_means['Accuracy'], color='purple', label='Acc', marker='x')
-    ax[0].fill_between(acc_means[pivot], acc_means['Accuracy'] - acc_stds['Accuracy'], acc_means['Accuracy'] + acc_stds['Accuracy'], color='purple', alpha=0.2)
-    ax[0].plot(acc_means[pivot], agc_acc, color='black', label='AGC')
-    ax[0].legend()
-
-    ax[1].plot(f1s_means[pivot], f1s_means['F1'], color='yellow', label='F1', marker='x')
-    ax[1].fill_between(f1s_means[pivot], f1s_means['F1'] - f1_stds['F1'], f1s_means['F1'] + f1_stds['F1'], color='yellow', alpha=0.2)
-    ax[1].plot(f1s_means[pivot], agc_f1, color='black', label='AGC')
-    ax[1].legend()
-
-    ax[2].plot(nmi_means[pivot], nmi_means['NMI'], color='green', label='NMI', marker='x')
-    ax[2].fill_between(nmi_means[pivot], nmi_means['NMI'] - nmi_stds['NMI'], nmi_means['NMI'] + nmi_stds['NMI'], color='green', alpha=0.2)
-    ax[2].plot(nmi_means[pivot], agc_nmi, color='black', label='AGC')
-    ax[2].legend()
-
-    ax[0].set_xlabel(pivot)
-    ax[1].set_xlabel(pivot)
-    ax[2].set_xlabel(pivot)
-    ax[0].set_ylabel('Score')
-    ax[1].set_ylabel('Score')
-    ax[2].set_ylabel('Score')
-
-    num_items = len(config.keys())
-    title = ''
-    for i, (k, v) in enumerate(config.items()):
-        if i == num_items - 1:
-            title += k + ':' + str(v)
-        else:
-            title += k + ':' + str(v) + ', '
-    plt.suptitle("\n".join(wrap(title, 75)))
-
-    filepath = filepath + '/'
-    for i, v in enumerate(config.values()):
-        if i == num_items - 1:
-            filepath += str(v)
-        else:
-            filepath += str(v) + '_'
-    filepath += '.png'
-    plt.savefig(filepath, format='png')
-    plt.show()
+        plt.savefig('{}/epoch_{}.pdf'.format(directory, epoch), format='pdf')
 
 
 def plot_temperature_losses(temps, alpha, a_max, epochs, lr, dropout, dims):
@@ -203,7 +130,7 @@ def plot_temperature_losses(temps, alpha, a_max, epochs, lr, dropout, dims):
     plt.tight_layout()
     plt.savefig('{}/clust_loss.pdf'.format(directory), format='pdf')
     plt.show()
-    print(recloss_files)
+
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
     for idx, temp in enumerate(list(recloss_files.keys())[::-1]):
         ax.plot(recloss_files[temp]['mean'], label='temp={}'.format(temp), color=colors[idx])
@@ -311,3 +238,292 @@ def plot_temperature_metrics(temps, alpha, a_max, epochs, lr, dropout, dims):
     plt.savefig('{}/nmi.pdf'.format(directory), format='pdf')
     plt.show()
 # plot_temperature_metrics([30, 50, 100], 'linear', 0.5, 2000, 0.001, 0.2, [32])
+
+
+def plot_ks(dataset):
+    point_df = pd.read_csv('../output/k/pointNet_{}_k.csv'.format(dataset))
+    mlp_df = pd.read_csv('../output/k/MLP_{}_k.csv'.format(dataset))
+    cnn_df = pd.read_csv('../output/k/CNN_{}_k.csv'.format(dataset))
+
+    acc_means = dict()
+    ari_means = dict()
+    nmi_means = dict()
+    f1_means = dict()
+    acc_stds = dict()
+    ari_stds = dict()
+    nmi_stds = dict()
+    f1_stds = dict()
+
+    means = point_df.groupby('Power').mean().reset_index()
+    stds = point_df.groupby('Power').std().reset_index()
+
+    acc_means['pointNet'] = means.sort_values('Power')['Acc']
+    ari_means['pointNet'] = means.sort_values('Power')['Ari']
+    nmi_means['pointNet'] = means.sort_values('Power')['Nmi']
+    f1_means['pointNet'] = means.sort_values('Power')['F1']
+    acc_stds['pointNet'] = stds.sort_values('Power')['Acc']
+    ari_stds['pointNet'] = stds.sort_values('Power')['Ari']
+    nmi_stds['pointNet'] = stds.sort_values('Power')['Nmi']
+    f1_stds['pointNet'] = stds.sort_values('Power')['F1']
+
+    means = mlp_df.groupby('Power').mean().reset_index()
+    stds = mlp_df.groupby('Power').std().reset_index()
+
+    acc_means['mlp'] = means.sort_values('Power')['Acc']
+    ari_means['mlp'] = means.sort_values('Power')['Ari']
+    nmi_means['mlp'] = means.sort_values('Power')['Nmi']
+    f1_means['mlp'] = means.sort_values('Power')['F1']
+    acc_stds['mlp'] = stds.sort_values('Power')['Acc']
+    ari_stds['mlp'] = stds.sort_values('Power')['Ari']
+    nmi_stds['mlp'] = stds.sort_values('Power')['Nmi']
+    f1_stds['mlp'] = stds.sort_values('Power')['F1']
+
+    means = cnn_df.groupby('Power').mean().reset_index()
+    stds = cnn_df.groupby('Power').std().reset_index()
+
+    acc_means['cnn'] = means.sort_values('Power')['Acc']
+    ari_means['cnn'] = means.sort_values('Power')['Ari']
+    nmi_means['cnn'] = means.sort_values('Power')['Nmi']
+    f1_means['cnn'] = means.sort_values('Power')['F1']
+    acc_stds['cnn'] = stds.sort_values('Power')['Acc']
+    ari_stds['cnn'] = stds.sort_values('Power')['Ari']
+    nmi_stds['cnn'] = stds.sort_values('Power')['Nmi']
+    f1_stds['cnn'] = stds.sort_values('Power')['F1']
+
+    directory = '../figures/pointSpectrum/k/'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    for idx, key in enumerate(list(acc_means.keys())):
+        ax.plot(np.arange(1, len(acc_means[key]) + 1), acc_means[key], label=key, color=colors[idx])
+        ax.fill_between(np.arange(1, len(acc_means[key]) + 1), acc_means[key] - acc_stds[key], acc_means[key] + acc_stds[key], color=colors[idx], alpha=0.3)
+    ax.set_xlabel('k')
+    ax.set_ylabel('Accuracy')
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8])
+    ax.set_ylim(-0.01, 0.8)
+    ax.grid(axis='y')
+    plt.legend(loc='best', ncol=1, frameon=False)
+    plt.tight_layout()
+    plt.savefig('{}/{}_acc.pdf'.format(directory, dataset), format='pdf')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    for idx, key in enumerate(list(ari_means.keys())):
+        ax.plot(np.arange(1, len(ari_means[key]) + 1), ari_means[key], label=key, color=colors[idx])
+        ax.fill_between(np.arange(1, len(ari_means[key]) + 1), ari_means[key] - ari_stds[key], ari_means[key] + ari_stds[key], color=colors[idx], alpha=0.3)
+    ax.set_xlabel('k')
+    ax.set_ylabel('ARI')
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8])
+    ax.set_ylim(-0.01, 0.8)
+    ax.grid(axis='y')
+    plt.legend(loc='best', ncol=1, frameon=False)
+    plt.tight_layout()
+    plt.savefig('{}/{}_ari.pdf'.format(directory, dataset), format='pdf')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    for idx, key in enumerate(list(nmi_means.keys())):
+        ax.plot(np.arange(1, len(nmi_means[key]) + 1), nmi_means[key], label=key, color=colors[idx])
+        ax.fill_between(np.arange(1, len(nmi_means[key]) + 1), nmi_means[key] - nmi_stds[key], nmi_means[key] + nmi_stds[key], color=colors[idx], alpha=0.3)
+    ax.set_xlabel('k')
+    ax.set_ylabel('NMI')
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8])
+    ax.set_ylim(-0.01, 0.8)
+    ax.grid(axis='y')
+    plt.legend(loc='best', ncol=1, frameon=False)
+    plt.tight_layout()
+    plt.savefig('{}/{}_nmi.pdf'.format(directory, dataset), format='pdf')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    for idx, key in enumerate(list(f1_means.keys())):
+        ax.plot(np.arange(1, len(f1_means[key]) + 1), f1_means[key], label=key, color=colors[idx])
+        ax.fill_between(np.arange(1, len(f1_means[key]) + 1), f1_means[key] - f1_stds[key], f1_means[key] + f1_stds[key], color=colors[idx], alpha=0.3)
+    ax.set_xlabel('k')
+    ax.set_ylabel('F1')
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8])
+    ax.set_ylim(-0.01, 0.8)
+    ax.grid(axis='y')
+    plt.legend(loc='best', ncol=1, frameon=False)
+    plt.tight_layout()
+    plt.savefig('{}/{}_f1.pdf'.format(directory, dataset), format='pdf')
+    plt.show()
+# plot_ks('cora')
+
+
+def smooth(scalars, weight=0.95):
+    """
+    Smoothing of a list of values, similar to Tensorboard's smoothing
+    """
+    last = scalars[0]  # First value in the plot (first timestep)
+    smoothed = list()
+    for point in scalars:
+        smoothed_val = last * weight + (1 - weight) * point  # Calculate smoothed value
+        smoothed.append(smoothed_val)                        # Save it
+        last = smoothed_val                                  # Anchor the last smoothed value
+
+    return smoothed
+
+
+def plot_convergence(models, dataset):
+    dirs = []
+    for model in models:
+        if dataset == 'cora':
+            dirs.append('pickles/pointSpectrum/{}_{}_1.0_a_const_a_fun_1.0_b _const_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power'.format(model, dataset))
+        elif dataset == 'citeseer':
+            dirs.append('pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_5.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_6_power'.format(model, dataset))
+        elif dataset == 'pubmed':
+            dirs.append(
+                'pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_1.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power'.format(model, dataset))
+    loss_files = {}  # key = model value = list of files
+    r_loss_files = {}
+    c_loss_files = {}
+    for idx, dir in enumerate(dirs):
+        path, dirs, files = next(os.walk("../{}".format(dir)))
+        loss_files[models[idx]] = [file for file in files if file.startswith('losses')]
+        r_loss_files[models[idx]] = [file for file in files if 'reclosses' in file]
+        c_loss_files[models[idx]] = [file for file in files if 'clustlosses' in file]
+
+    for model in loss_files.keys():  # each iter different model
+        losses = []
+        r_losses = []
+        c_losses = []
+        for i in tqdm(range(len(loss_files[model]))):
+            if dataset == 'cora':
+                loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_const_a_fun_1.0_b _const_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power/losses_{}.pickle'.format(model, dataset, i), 'rb'))
+                r_loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_const_a_fun_1.0_b _const_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power/reclosses_{}.pickle'.format(model, dataset, i), 'rb'))
+                c_loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_const_a_fun_1.0_b _const_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power/clustlosses_{}.pickle'.format(model, dataset, i), 'rb'))
+            elif dataset == 'citeseer':
+                loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_5.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_6_power/losses_{}.pickle'.format(model, dataset, i), 'rb'))
+                r_loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_5.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_6_power/reclosses_{}.pickle'.format(model, dataset, i), 'rb'))
+                c_loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_5.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_6_power/clustlosses_{}.pickle'.format(model, dataset, i), 'rb'))
+            elif dataset == 'pubmed':
+                loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_1.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power/losses_{}.pickle'.format(model, dataset, i), 'rb'))
+                r_loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_1.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power/reclosses_{}.pickle'.format(model, dataset, i), 'rb'))
+                c_loss = pickle.load(open('../pickles/pointSpectrum/{}_{}_1.0_a_expdec_a_fun_1.0_b _exp_b_fun_10_temperature_500_epochs_0.01_lr_0.2_dropout_100_dims_8_power/clustlosses_{}.pickle'.format(model, dataset, i), 'rb'))
+
+            # convert tensors to float
+            loss = [float(i) for i in loss]
+            r_loss = [float(i) for i in r_loss]
+            c_loss = [float(i) for i in c_loss]
+
+            # append to iteration lists
+            losses.append(loss)
+            r_losses.append(r_loss)
+            c_losses.append(c_loss)
+
+        # convert to numpy for ease
+        losses = np.array(losses)
+        r_losses = np.array(r_losses)
+        c_losses = np.array(c_losses)
+
+        # calc stats
+        mean_losses = np.mean(losses, axis=0)
+        mean_r_losses = np.mean(r_losses, axis=0)
+        mean_c_losses = np.mean(c_losses, axis=0)
+        std_losses = np.std(losses, axis=0)
+        std_r_losses = np.std(r_losses, axis=0)
+        std_c_losses = np.std(c_losses, axis=0)
+
+        # create the utmost dictionary for each freq
+        loss_files[model] = {'mean': mean_losses, 'std': std_losses}
+        r_loss_files[model] = {'mean': mean_r_losses, 'std': std_r_losses}
+        c_loss_files[model] = {'mean': mean_c_losses, 'std': std_c_losses}
+
+    directory = '../figures/pointSpectrum/convergence/'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    for idx, model in enumerate(list(loss_files.keys())):
+        smoothed = smooth(loss_files[model]['mean'])
+        ax.plot(smoothed, label=model, color=colors[idx])
+        # ax.fill_between(np.arange(1, len(loss_files[model]['mean']) + 1), loss_files[model]['mean'] - loss_files[model]['std'], loss_files[model]['mean'] + loss_files[model]['std'], color=colors[idx], alpha=0.3)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    # ax.set_yticks([0.00, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2])
+    # ax.set_ylim(-0.01, 1.21)
+    ax.grid(axis='y')
+    plt.legend(loc='best', ncol=1, frameon=False)
+    plt.tight_layout()
+    plt.savefig('{}/{}_loss.pdf'.format(directory, dataset), format='pdf')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    for idx, model in enumerate(list(r_loss_files.keys())):
+        smoothed = smooth(r_loss_files[model]['mean'])
+        ax.plot(smoothed, label=model, color=colors[idx])
+        # ax.fill_between(np.arange(1, len(r_loss_files[model]['mean']) + 1), r_loss_files[model]['mean'] - r_loss_files[model]['std'], r_loss_files[model]['mean'] + r_loss_files[model]['std'], color=colors[idx], alpha=0.3)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Reconstruction loss')
+    # ax.set_yticks([0.00, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2])
+    # ax.set_ylim(-0.01, 1.21)
+    ax.grid(axis='y')
+    plt.legend(loc='best', ncol=1, frameon=False)
+    plt.tight_layout()
+    plt.savefig('{}/{}_r_loss.pdf'.format(directory, dataset), format='pdf')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+    for idx, model in enumerate(list(c_loss_files.keys())):
+        smoothed = smooth(c_loss_files[model]['mean'])
+        ax.plot(smoothed, label=model, color=colors[idx])
+        # ax.fill_between(np.arange(1, len(c_loss_files[model]['mean']) + 1), c_loss_files[model]['mean'] - c_loss_files[model]['std'], c_loss_files[model]['mean'] + c_loss_files[model]['std'], color=colors[idx], alpha=0.3)
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Clustering loss')
+    # ax.set_yticks([0.00, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2])
+    # ax.set_ylim(-0.01, 1.21)
+    ax.grid(axis='y')
+    plt.legend(loc='best', ncol=1, frameon=False)
+    plt.tight_layout()
+    plt.savefig('{}/{}_c_loss.pdf'.format(directory, dataset), format='pdf')
+    plt.show()
+# plot_convergence(['pointNet', 'mlp', 'cnn'], 'cora')
+
+
+def plot_features():
+
+    directory = '../output/feature_importance'
+    path, dirs, files = next(os.walk(directory))
+
+    models = list()
+    classes = list()
+    accs = list()
+    nmis = list()
+    aris = list()
+    f1s = list()
+    for file in files:
+        df = pd.read_csv(directory + '/' + file)
+        parts = file.split('_')
+        models.append(parts[0])
+        if 'full' in parts[-1]:
+            classes.append(parts[-1][:-4])
+        else:
+            classes.append('-' + parts[-1][:-4])
+        accs.append(df['Acc'].mean())
+        nmis.append(df['Nmi'].mean())
+        aris.append(df['Ari'].mean())
+        f1s.append(df['F1'].mean())
+
+    data_dict = {'Model': models, 'Features': classes, 'Acc': accs, 'Nmi': nmis, 'Ari': aris, 'F1': f1s}
+    data = pd.DataFrame(data_dict)
+
+    directory = '../figures/pointSpectrum/feature_importance/'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    custom_dict = {'full': 3, '-500': 2, '-1000': 1, '-2000': 0}
+    data['Rank'] = data['Features'].map(custom_dict)
+    data = data.sort_values(['Rank', 'Model'], ascending=False)
+
+    for metric in ['Acc', 'Ari', 'Nmi', 'F1']:
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
+        custom_palette = sns.color_palette(colors)
+        ax.grid(axis='y')
+        sns.barplot(x='Features', y=metric, data=data, palette=custom_palette, hue='Model')
+        plt.legend(loc='best', ncol=1, frameon=False)
+        plt.tight_layout()
+        plt.savefig('{}/features_{}.pdf'.format(directory, metric), format='pdf')
+        plt.show()
+# plot_features()

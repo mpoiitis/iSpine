@@ -7,20 +7,21 @@ from torch_geometric.utils import negative_sampling, remove_self_loops, add_self
 EPS = 1e-15
 
 
-class Encoder(torch.nn.Module):
+class MLPEncoder(torch.nn.Module):
+    """
+        MLP-based encoder. Layers are assigned twice for each input dimension to match the DeepSet logic
+    """
     def __init__(self, dims, dropout):
-        super(Encoder, self).__init__()
+        super(MLPEncoder, self).__init__()
         self.dropout = dropout
         self.layers = torch.nn.ModuleList()
         for i in range(len(dims) - 1):
+            self.layers.append(torch.nn.Linear(dims[i], dims[i]))
             self.layers.append(torch.nn.Linear(dims[i], dims[i + 1]))
-            # self.layers.append(torch.nn.Conv1d(dims[i], dims[i + 1], 1))
             _init_weights(self.layers[-1])
 
     def forward(self, x):
         num_layers = len(self.layers)
-        # x = x.view((x.shape[0], 1, -1))
-        # x = x.transpose(2, 1)
 
         for idx, layer in enumerate(self.layers):
             if idx < num_layers - 1:
@@ -30,8 +31,37 @@ class Encoder(torch.nn.Module):
             else:
                 x = layer(x)
 
-        # x = x.transpose(2, 1).contiguous()
-        # x = x.view((x.shape[0], -1))
+        return x
+
+
+class CNNEncoder(torch.nn.Module):
+    """
+    CNN-based encoder. Layers are assigned twice for each input dimension to match the DeepSet logic
+    """
+    def __init__(self, dims, dropout):
+        super(CNNEncoder, self).__init__()
+        self.dropout = dropout
+        self.layers = torch.nn.ModuleList()
+        for i in range(len(dims) - 1):
+            self.layers.append(torch.nn.Conv1d(dims[i], dims[i], 1))
+            self.layers.append(torch.nn.Conv1d(dims[i], dims[i + 1], 1))
+            _init_weights(self.layers[-1])
+
+    def forward(self, x):
+        num_layers = len(self.layers)
+        x = x.view((x.shape[0], 1, -1))
+        x = x.transpose(2, 1)
+
+        for idx, layer in enumerate(self.layers):
+            if idx < num_layers - 1:
+                x = layer(x)
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+            else:
+                x = layer(x)
+
+        x = x.transpose(2, 1).contiguous()
+        x = x.view((x.shape[0], -1))
 
         return x
 
@@ -68,21 +98,27 @@ class InnerProductDecoder(torch.nn.Module):
 
 class PointSpectrum(torch.nn.Module):
 
-    def __init__(self, dims, num_centers, dropout, temperature):
+    def __init__(self, dims, num_centers, dropout, temperature, enc_type='pointNet'):
         super(PointSpectrum, self).__init__()
         embedding_dim = dims[-1]
         self.data_dim = dims[0]
-        # self.encoder = Encoder(dims, dropout)
-        self.encoder = PointNetST(dims, dropout, False)
+        self.num_centers = num_centers
+        if enc_type == 'mlp':
+            self.encoder = MLPEncoder(dims, dropout)
+        elif enc_type == 'cnn':
+            self.encoder = CNNEncoder(dims, dropout)
+        else:
+            self.encoder = PointNetST(dims, dropout, False)
         self.decoder = InnerProductDecoder()
 
         self.clusterNet = ClusterNet(num_centers, temperature, embedding_dim)
         self.mu = None  # the cluster centers
         self.r = None  # the soft assignments to clusters
 
-    def encode(self, x):
-        z = self.encoder(x)
-        return z
+    def forward(self, x):
+        out = x
+        out = self.encoder(out)
+        return out
 
     def rec_loss(self, z, pos_edge_index, neg_edge_index=None):
         pos_loss = -torch.log(self.decoder(z, pos_edge_index, sigmoid=True) + EPS).mean()  # for inner product decoder
@@ -98,7 +134,6 @@ class PointSpectrum(torch.nn.Module):
     def cluster_loss(self, z):
         self.mu, self.r = self.clusterNet(z, 10)  # get centers, soft assignments and distribution
         loss = cluster_kl_loss(self.r)
-
         return loss
 
     def loss(self, z, alpha, beta, pos_edge_index, neg_edge_index=None):
@@ -106,6 +141,8 @@ class PointSpectrum(torch.nn.Module):
         c_loss = self.cluster_loss(z)
 
         loss = alpha * r_loss + beta * c_loss
+        # loss = r_loss
+        # return loss, r_loss, None
         return loss, r_loss, c_loss
 
     def assign_clusters(self, z):

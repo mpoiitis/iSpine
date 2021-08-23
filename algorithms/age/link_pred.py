@@ -19,15 +19,16 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 from torch import optim
 import torch.nn.functional as F
-from model import LinTrans, LogReg
-from optimizer import loss_function
-from utils import *
+from .models import LinTrans, LogReg
+from .optimizer import loss_function
+from .utils import *
+from utils.utils import load_data, preprocess_graph, mask_test_edges
 from sklearn.cluster import SpectralClustering, KMeans
-from clustering_metric import clustering_metrics
 from tqdm import tqdm
 from sklearn.preprocessing import normalize, MinMaxScaler
 from sklearn import metrics
 import matplotlib.pyplot as plt
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--gnnlayers', type=int, default=1, help="Number of gnn layers")

@@ -247,7 +247,6 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
 def mask_test_edges(adj):
     # Function to build test set with 10% positive links
     # NOTE: Splits are randomized and results might slightly deviate from reported numbers in the paper.
-    # TODO: Clean up.
 
     # Remove diagonal elements
     adj = adj - sp.dia_matrix((adj.diagonal()[np.newaxis, :], [0]), shape=adj.shape)
@@ -406,10 +405,11 @@ def largest_eigval_smoothing_filter(adj):
 
     laplacian = sp.csgraph.laplacian(adj_normalized, normed=True) # the symmetric normalized laplacian
 
-    largest_eigval, _ = eigsh(laplacian, 1, which='LM')
-    largest_eigval = largest_eigval.round(decimals=4) # round to avoid floating point overflow
+    # largest_eigval, _ = eigsh(laplacian, 1, which='LM')
+    # largest_eigval = largest_eigval.round(decimals=4) # round to avoid floating point overflow
 
-    h = ident - laplacian.multiply(1 / largest_eigval)
+    # h = ident - laplacian.multiply(1 / largest_eigval)
+    h = ident - laplacian.multiply(2/3)
     return h
 
 
