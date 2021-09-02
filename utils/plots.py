@@ -45,10 +45,14 @@ def plot_centers(embeds, centers, gnd, args, epoch=-1):
     X_embedded = data_embedded[:-centers.shape[0], :]
     centers_embedded = data_embedded[-centers.shape[0]:, :]
 
-    palette = sns.color_palette('Set3', len(np.unique(gnd)))
+    flatui = ["#f43f1a", "#00c0ff", "#ffc100", "#ad6aea", "#68d16a", "#f3b5f4", "#8dd3c7"]
+    sns.set_palette(flatui)
+    palette = sns.color_palette()
+    palette = palette[:len(np.unique(gnd))]
+    # palette = sns.color_palette('Set2', len(np.unique(gnd)))
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=[7, 4.8])
     sns.scatterplot(X_embedded[:, 0], X_embedded[:, 1], hue=gnd, legend=None, palette=palette)
-    ax.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='black', marker='X')
+    ax.scatter(centers_embedded[:, 0], centers_embedded[:, 1], c='black', marker='X', s=250)
 
     ax.xaxis.set_major_locator(plt.NullLocator())
     ax.yaxis.set_major_locator(plt.NullLocator())
@@ -68,9 +72,9 @@ def plot_centers(embeds, centers, gnd, args, epoch=-1):
     if not os.path.exists(directory):
         os.makedirs(directory)
     if epoch == -1:
-        plt.savefig('{}/total.pdf'.format(directory), format='pdf')
+        plt.savefig('{}/total.png'.format(directory), format='png', bbox_inches='tight', pad_inches=0)
     else:
-        plt.savefig('{}/epoch_{}.pdf'.format(directory, epoch), format='pdf')
+        plt.savefig('{}/epoch_{}.png'.format(directory, epoch), format='png', bbox_inches='tight', pad_inches=0)
 
 
 def plot_temperature_losses(temps, alpha, a_max, epochs, lr, dropout, dims):
